@@ -129,10 +129,44 @@ Each gesture maps to a BTHome button event on object `0x3A`:
 | tap ×2 then hold | `0x06` long_triple_press | white fade |
 | hold ≥1500 ms | `0x80` hold_press | red pulse |
 
-Pad colours are cyan / green / amber / magenta for SW1–SW4, capped at
-`PAD_LED_BRIGHTNESS_PCT` (12%) — these sit close to the eye.
-
 Timings live in [`firmware/board.h`](firmware/board.h).
+
+## Pad LEDs
+
+The pads are **dark at rest**. Three layers can light one, highest priority
+first:
+
+| Layer | When | Looks like |
+|-------|------|-----------|
+| Gesture | a gesture is decoded | the patterns above, at the full ceiling |
+| On air | a burst is transmitting | steady white |
+| Press | a pad is physically held | steady, dim, pad colour |
+
+Pad identity colours are cyan / green / amber / magenta for SW1–SW4.
+
+The press layer exists because a single tap is not *decoded* until the
+multi-tap window closes, ~280 ms after release. Without it the fob feels
+dead under your thumb. It lights on the debounced press, so ~8 ms in.
+
+A running gesture animation owns its pixel outright, dark phases included, so
+the lower layers cannot fight its blink pattern.
+
+**On the "on air" layer:** every advertisement today is triggered by a
+gesture, and the gesture pattern runs concurrently with the burst — so that
+pattern already *is* the on-air indication, and the white glow is suppressed
+on that pad. Without the suppression a single tap would show a stray white
+tick, because one blink is 210 ms against a 240 ms burst. What is left is the
+case the layer is for: a chirp with no gesture behind it. There are none yet
+— battery or status chirps would be the first — so on current firmware the
+white glow is unused by design, and wired up ready.
+
+### Brightness
+
+`PAD_LED_BRIGHTNESS_PCT` (**10%**) is the single ceiling; every colour any
+layer produces is scaled by it. `PAD_LED_PRESS_PCT` and `PAD_LED_TX_PCT` are
+percentages *of* that ceiling, so moving the ceiling moves everything
+together. `PAD_LED_SHOW_PRESS` and `PAD_LED_SHOW_TX` drop either layer
+entirely. All in [`firmware/board.h`](firmware/board.h).
 
 ## How it fits together
 
@@ -197,6 +231,13 @@ data UUID and device-info byte, ascending object IDs, the 31-byte payload
 limit, and the advertiser-address byte-order handling in all three of its
 cases.
 
+**Pad LEDs** — `ws2812_show` is stubbed to capture the framebuffer, so the
+real animation engine can be driven through its states: dark at rest, the
+press glow and its colour, gesture patterns outranking it, the on-air glow
+appearing for a gesture-less burst but suppressed for a gesture-driven one
+(including after the pattern ends), the brightness ceiling hit exactly, and
+that idle frames do not touch the chain at all.
+
 **Gestures** — the stubbed GPIO registers let the test drive the pads
 millisecond by millisecond and assert on the event queue: every tap and hold
 combination including the banked-tap `long_double` / `long_triple` paths,
@@ -213,7 +254,7 @@ firmware/
   board.h        pin map and every tunable
   buttons.c/h    GPIO edge IRQs, debounce, gesture state machine
   ws2812.c/h     bit-banged WS2812 on PB7, runs from RAM
-  led_anim.c/h   per-pixel non-blocking animations
+  led_anim.c/h   per-pixel layering: gesture, on-air, press
   bthome.c/h     BTHome v2 packet builder
   ble_adv.c/h    iSLER advertising bursts
   libc_shim.c    one strong memset; see the file for why

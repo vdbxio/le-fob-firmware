@@ -23,6 +23,7 @@ static uint8_t  pdu_header;
 static uint8_t  tx_power = BLE_TX_POWER;
 static uint8_t  packet_id;
 static uint8_t  rounds_left;
+static int8_t   tx_button = -1;
 static uint32_t t_last_round;
 static int      adv_len;
 
@@ -58,6 +59,8 @@ void ble_adv_send_event(uint8_t button, uint8_t event)
 	if (button < NUM_BUTTONS)
 		events[button] = event;
 
+	tx_button = (int8_t)button;
+
 	packet_id++;
 	adv_len = bthome_build_adv(adv_buf, pdu_header, mac, events, packet_id);
 
@@ -86,4 +89,9 @@ void ble_adv_tick(uint32_t now)
 int ble_adv_busy(void)
 {
 	return rounds_left != 0;
+}
+
+int ble_adv_tx_button(void)
+{
+	return rounds_left ? tx_button : -1;
 }

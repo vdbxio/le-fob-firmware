@@ -18,4 +18,5 @@
 # host test binaries
 /tests/test_bthome
 /tests/test_buttons
+/tests/test_leds
 /tests/*.dSYM/

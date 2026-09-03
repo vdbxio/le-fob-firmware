@@ -34,7 +34,31 @@ typedef struct {
 	uint32_t t0;
 } anim_t;
 
+/* Levels for the two non-gesture layers, as a 0..255 multiplier that then
+ * goes through the global PAD_LED_BRIGHTNESS_PCT ceiling in scale(). */
+#define PRESS_LEVEL ((255 * PAD_LED_PRESS_PCT) / 100)
+#define TX_LEVEL    ((255 * PAD_LED_TX_PCT) / 100)
+
 static anim_t   anim[WS2812_COUNT];
+static uint8_t  pressed_mask;
+static int8_t   tx_button = -1;
+
+/*
+ * Pads whose gesture animation already stands for the burst now on air.
+ *
+ * Every advertisement today is triggered by a gesture, and the gesture
+ * pattern runs concurrently with it -- so that pattern *is* the "on air"
+ * indication, and painting the white TX glow on top would only show up in
+ * the gap where the burst outlives the pattern. A single tap is exactly that
+ * case: one blink is 210 ms against a 240 ms burst, so without this the
+ * cyan blink would be chased by a stray white tick.
+ *
+ * Set when a gesture animation starts, cleared when the burst ends. What is
+ * left is the case this layer is actually for: a chirp with no gesture
+ * behind it. There are none yet -- battery and status chirps would be the
+ * first -- so on current firmware the white glow stays unused by design.
+ */
+static uint8_t  tx_suppress;
 static uint8_t  fb[WS2812_COUNT * 3]; /* wire order: G, R, B */
 static uint8_t  fb_shadow[WS2812_COUNT * 3];
 static uint32_t t_last_frame;
@@ -71,10 +95,25 @@ static void set_anim(uint8_t i, uint8_t kind, const uint8_t rgb[3],
 	anim[i].t0   = now;
 }
 
+void led_anim_set_pressed(uint8_t mask)
+{
+	pressed_mask = mask;
+}
+
+void led_anim_set_tx(int button)
+{
+	if (button < 0)
+		tx_suppress = 0; /* burst over; next one starts unsuppressed */
+
+	tx_button = (int8_t)button;
+}
+
 void led_anim_trigger(uint8_t button, uint8_t event, uint32_t now)
 {
 	if (button >= WS2812_COUNT)
 		return;
+
+	tx_suppress |= (uint8_t)(1u << button);
 
 	switch (event) {
 	case BTHOME_EVT_PRESS:
@@ -155,12 +194,47 @@ void led_anim_tick(uint32_t now)
 	t_last_frame = now;
 
 	for (int i = 0; i < WS2812_COUNT; i++) {
-		uint8_t level = anim_level(&anim[i], now);
+		const uint8_t *rgb;
+		uint8_t        level;
+
+		/*
+		 * anim_level() clears kind once an animation has run its course,
+		 * so testing kind *after* calling it is what decides whether this
+		 * pixel still belongs to the gesture layer.
+		 */
+		uint8_t anim_lvl = anim_level(&anim[i], now);
+
+		if (anim[i].kind != ANIM_IDLE) {
+			/* Gesture owns the pixel, including its dark phases. */
+			uint8_t c[3] = { anim[i].r, anim[i].g, anim[i].b };
+
+			fb[i * 3 + 0] = scale(c[1], anim_lvl);
+			fb[i * 3 + 1] = scale(c[0], anim_lvl);
+			fb[i * 3 + 2] = scale(c[2], anim_lvl);
+			continue;
+		}
+
+		if (PAD_LED_SHOW_TX && tx_button == i &&
+		    !(tx_suppress & (1u << i))) {
+			/* On air. White, to read as status rather than as one of
+			 * the per-pad identity colours. */
+			rgb   = colour_white;
+			level = TX_LEVEL;
+		} else if (PAD_LED_SHOW_PRESS && (pressed_mask & (1u << i))) {
+			rgb   = pad_colour[i];
+			level = PRESS_LEVEL;
+		} else {
+			/* Dark at rest. */
+			fb[i * 3 + 0] = 0;
+			fb[i * 3 + 1] = 0;
+			fb[i * 3 + 2] = 0;
+			continue;
+		}
 
 		/* WS2812 wire order is green, red, blue. */
-		fb[i * 3 + 0] = scale(anim[i].g, level);
-		fb[i * 3 + 1] = scale(anim[i].r, level);
-		fb[i * 3 + 2] = scale(anim[i].b, level);
+		fb[i * 3 + 0] = scale(rgb[1], level);
+		fb[i * 3 + 1] = scale(rgb[0], level);
+		fb[i * 3 + 2] = scale(rgb[2], level);
 	}
 
 	/* Only touch the chain when the picture actually changed. Every refresh
@@ -186,6 +260,10 @@ void led_anim_all_off(void)
 {
 	for (int i = 0; i < WS2812_COUNT; i++)
 		anim[i].kind = ANIM_IDLE;
+
+	pressed_mask = 0;
+	tx_button    = -1;
+	tx_suppress  = 0;
 
 	memset(fb, 0, sizeof(fb));
 	memcpy(fb_shadow, fb, sizeof(fb));

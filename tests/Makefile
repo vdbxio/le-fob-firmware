@@ -19,9 +19,13 @@ test_bthome : test_bthome.c ../firmware/bthome.c
 test_buttons : test_buttons.c ../firmware/buttons.c
 	$(CC) $(CFLAGS) -Dinterrupt=used -o $@ $^
 
-run : test_bthome test_buttons
+test_leds : test_leds.c ../firmware/led_anim.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+run : test_bthome test_buttons test_leds
 	./test_bthome
 	./test_buttons
+	./test_leds
 
 clean :
-	rm -rf test_bthome test_buttons *.dSYM
+	rm -rf test_bthome test_buttons test_leds *.dSYM

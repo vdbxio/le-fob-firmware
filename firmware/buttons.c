@@ -202,6 +202,17 @@ void buttons_tick(uint32_t now)
 	}
 }
 
+uint8_t buttons_pressed_mask(void)
+{
+	uint8_t mask = 0;
+
+	for (int i = 0; i < NUM_BUTTONS; i++) {
+		if (btn[i].level)
+			mask |= (uint8_t)(1u << i);
+	}
+	return mask;
+}
+
 int buttons_busy(void)
 {
 	if (evq_tail != evq_head)

@@ -128,6 +128,14 @@ int main(void)
 				ble_adv_send_event(button, event);
 			}
 
+			/*
+			 * Feed the two state-tracking LED layers before
+			 * rendering. Order matters only in that both must be
+			 * current for this frame.
+			 */
+			led_anim_set_pressed(buttons_pressed_mask());
+			led_anim_set_tx(ble_adv_tx_button());
+
 			led_anim_tick(now);
 			ble_adv_tick(now);
 

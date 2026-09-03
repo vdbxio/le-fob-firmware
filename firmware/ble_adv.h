@@ -24,6 +24,12 @@ void ble_adv_tick(uint32_t now);
 /* Nonzero while a burst is still going out. */
 int ble_adv_busy(void);
 
+/*
+ * Which pad the burst currently on air belongs to (0..NUM_BUTTONS-1), or -1
+ * when the radio is idle. Drives the "on air" LED layer.
+ */
+int ble_adv_tx_button(void);
+
 /* Re-initialise the radio after deep sleep, which leaves it in an odd
  * state. Harmless to call when we did not actually sleep. */
 void ble_adv_resume(void);

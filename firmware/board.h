@@ -59,10 +59,48 @@
 
 /* Chain order W1..W4 matches buttons 1..4. */
 
-/* Peak duty for the pad LEDs, 0-100. These sit ~10 mm from the user's eye
- * in a dark pocket; full scale is unpleasant and wastes battery. */
+/*
+ * Global ceiling on pad LED brightness, 0-100. Every colour any layer
+ * produces is scaled by this, so it is the one knob for "how bright is the
+ * fob". These sit ~10 mm from the user's eye in a dark pocket; full scale is
+ * unpleasant and wastes battery.
+ */
 #ifndef PAD_LED_BRIGHTNESS_PCT
-#define PAD_LED_BRIGHTNESS_PCT 12
+#define PAD_LED_BRIGHTNESS_PCT 10
+#endif
+
+/*
+ * The pads are dark at rest. Three things light them, in priority order --
+ * see led_anim.c:
+ *
+ *   1. a decoded gesture   distinct pattern per gesture, identifies what the
+ *                          firmware thinks you did
+ *   2. an advertising burst  the fob is on air
+ *   3. a pad physically held  immediate feedback, before any gesture has been
+ *                          decoded
+ *
+ * Levels below are percentages *of* PAD_LED_BRIGHTNESS_PCT, not of full
+ * scale, so raising or lowering the global ceiling moves all of them
+ * together. Gesture patterns run at the full ceiling.
+ */
+
+/* Steady glow while a pad is held down. */
+#ifndef PAD_LED_PRESS_PCT
+#define PAD_LED_PRESS_PCT 35
+#endif
+
+/* Glow while the radio is transmitting a burst. */
+#ifndef PAD_LED_TX_PCT
+#define PAD_LED_TX_PCT 55
+#endif
+
+/* Set either to 0 to drop that layer entirely. */
+#ifndef PAD_LED_SHOW_PRESS
+#define PAD_LED_SHOW_PRESS 1
+#endif
+
+#ifndef PAD_LED_SHOW_TX
+#define PAD_LED_SHOW_TX 1
 #endif
 
 /* ------------------------------------------------------------------ */

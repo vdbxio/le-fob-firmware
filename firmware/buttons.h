@@ -37,6 +37,13 @@ void buttons_tick(uint32_t now);
  */
 int buttons_pop_event(uint8_t *button, uint8_t *event);
 
+/*
+ * Bitmask of pads currently held down, bit 0 = SW1. Debounced, so it lags a
+ * real press by BTN_DEBOUNCE_MS -- imperceptible, and it means a bouncing
+ * contact cannot make the LED flicker.
+ */
+uint8_t buttons_pressed_mask(void);
+
 /* Nonzero while any pad is physically down, or while a gesture is still
  * being decoded (a tap waiting to see if it becomes a double, a press
  * waiting to become a hold). The sleep decision keys off this. */
