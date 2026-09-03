@@ -181,9 +181,33 @@ than a `0` bit's. Deriving the low time from a fixed 1.25 µs period gives
 `0` bit still looks fine.
 
 So [`ws2812.c`](firmware/ws2812.c) specifies all four times independently and
-lets each bit's period be whatever they add up to — 1100 ns for a `0`,
-1400 ns for a `1`. The values chosen (300 / 800 / 700 / 700 ns) sit inside
-both columns, so the driver works on either variant.
+lets each bit's period be whatever they add up to. The values chosen
+(300 / 800 / 700 / 700 ns) sit inside both columns, so the driver works on
+either variant, and `_Static_assert`s fail the build if any of them is tuned
+outside the V5 windows.
+
+**The high and low phases are timed by different mechanisms, deliberately.**
+Waiting on the SysTick counter is self-correcting and independent of what the
+compiler emitted, but it samples in a loop of a few instructions, so an edge
+lands somewhere in a 50–100 ns window after its deadline. Against T0L, T1H
+and T1L — all 420 ns wide — that is nothing. `T0H` is different: 220–380 ns
+is only 160 ns wide, so that jitter is a large fraction of it, and a `0` bit
+misread that way corrupts the rest of the frame, making the pixels
+*downstream* of the intended one flash.
+
+So the high phase is a **computed jump into a sled of nops** — a `1` bit
+enters at the top and runs all 39, a `0` bit enters 24 in and runs 15 — and
+the low phase is a SysTick wait against the slot boundary, absorbing all
+accumulated error into the parameter with room for it.
+
+The sled is not decoration. The obvious `if (one) { nops } else { nops }`
+does not work: the compiler hoists the common rising-edge store above the
+branch and shares the falling-edge store, so one arm falls straight through
+while the other pays a taken branch in and a taken jump out — several cycles
+landing *inside* the pulse, enough to push `T0H` back over 380 ns. Jumping
+into a sled makes both cases cost exactly `sw`, `jr`, N nops, `sw`; whatever
+a taken jump costs, it costs identically for both, and nothing varies at
+runtime, so every `0` bit in every frame is bit-identical.
 
 Two further accommodations for these parts, both in
 [`led_anim.c`](firmware/led_anim.c):
