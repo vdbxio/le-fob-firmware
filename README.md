@@ -298,6 +298,14 @@ mid-decode, no animation is running and no advertising burst is outstanding,
 plus `FOB_IDLE_LINGER_MS` of slack so a user between taps of a double-press is
 never cut off.
 
+## Next revision
+
+The pad LEDs move from PB7 to **PA14** so they can be driven by SPI+DMA, with
+the CON1 header taking PB7 in exchange. Reasoning, the two details that will
+bite if they are not carried across, and a way to validate the whole path on
+the *current* board with one jumper:
+[`docs/next-revision.md`](docs/next-revision.md).
+
 ## Splitting an LED glitch from the radio
 
 A pad LED glitch that lands on the same beat as a gesture has two very

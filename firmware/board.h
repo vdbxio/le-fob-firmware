@@ -50,7 +50,10 @@
 /* ------------------------------------------------------------------ */
 /*
  * PB7 is not an SPI MOSI pin, so ch32fun's SPI+DMA WS2812 driver (which
- * requires PA14) cannot drive this chain. PA14 on this board is PIXEL1,
+ * requires PA14) cannot drive this chain. The next board revision swaps
+ * this net with PIXEL1 so the pads land on PA14 and can be DMA-driven --
+ * see docs/next-revision.md, which also records that ch32fun's stock SPI
+ * encoding is not V5-compliant and needs two small changes first. PA14 on this board is PIXEL1,
  * which only goes to the external CON1 header. Hence the bit-bang in
  * ws2812.c — four pixels is ~120 us per refresh, which is affordable.
  */
