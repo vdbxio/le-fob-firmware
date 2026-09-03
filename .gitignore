@@ -1,0 +1,20 @@
+# build artifacts
+*.o
+*.elf
+*.bin
+*.hex
+*.lst
+*.map
+*_ext.bin
+
+# ch32fun is a working clone, not part of this repo's history
+/ch32fun/
+
+# macOS / Proton Drive
+.DS_Store
+*# Edit conflict *
+
+# host test binaries
+/tests/test_bthome
+/tests/test_buttons
+/tests/*.dSYM/

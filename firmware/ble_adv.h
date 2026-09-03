@@ -1,0 +1,38 @@
+#ifndef LE_FOB_BLE_ADV_H
+#define LE_FOB_BLE_ADV_H
+
+#include <stdint.h>
+
+/*
+ * BTHome advertising over ch32fun's iSLER raw-radio layer.
+ *
+ * There is no BLE stack here and none is needed: a BTHome sensor is a
+ * connectionless beacon, so this only ever transmits ADV_NONCONN_IND.
+ */
+
+/* Bring up the radio and work out our advertising address. */
+void ble_adv_init(void);
+
+/* Queue one button event for broadcast. This replaces any burst still in
+ * flight -- the newer gesture is the one the user cares about. */
+void ble_adv_send_event(uint8_t button, uint8_t event);
+
+/* Drive the burst. Transmits at most one round (three channels) per call
+ * and only when ADV_ROUND_INTERVAL_MS has elapsed. */
+void ble_adv_tick(uint32_t now);
+
+/* Nonzero while a burst is still going out. */
+int ble_adv_busy(void);
+
+/* Re-initialise the radio after deep sleep, which leaves it in an odd
+ * state. Harmless to call when we did not actually sleep. */
+void ble_adv_resume(void);
+
+/* The address we advertise under, in over-the-air order, for logging. */
+const uint8_t *ble_adv_mac(void);
+
+/* Nonzero if that address is a synthesised random static one rather than
+ * the WCH factory address. */
+int ble_adv_mac_is_random(void);
+
+#endif /* LE_FOB_BLE_ADV_H */

@@ -1,0 +1,47 @@
+/* Minimal stand-in for ch32fun.h, so board.h and bthome.c can be compiled
+ * and exercised on the host. Only the few things board.h touches. */
+#ifndef LEFOB_TEST_CH32FUN_H
+#define LEFOB_TEST_CH32FUN_H
+
+#include <stdint.h>
+
+#define PA9  (0x00000200)
+#define PB0  (0x80000001)
+#define PB4  (0x80000010)
+#define PB6  (0x80000040)
+#define PB7  (0x80000080)
+#define PB14 (0x80004000)
+#define PB15 (0x80008000)
+#define PB22 (0x80400000)
+#define PB23 (0x80800000)
+
+#define LL_TX_POWER_0_DBM 0
+
+/* The tests redirect LEFOB_ROM_MAC_ADDR at this buffer so the factory-address
+ * handling can be driven through each of its cases. */
+extern uint8_t g_fake_rom[6];
+
+/* ------------------------------------------------------------------ */
+/* GPIO registers, as plain variables the gesture test can drive.      */
+/* Active low, so a bit that is CLEAR means that button is pressed.    */
+/* ------------------------------------------------------------------ */
+extern uint32_t R32_PA_PIN, R32_PB_PIN;
+extern uint32_t R32_PA_CLR, R32_PB_CLR;
+extern uint16_t R16_PA_INT_EN, R16_PB_INT_EN;
+extern uint16_t R16_PA_INT_MODE, R16_PB_INT_MODE;
+extern uint16_t R16_PA_INT_IF, R16_PB_INT_IF;
+extern uint16_t R16_PIN_ALTERNATE;
+extern uint8_t  R8_SLP_WAKE_CTRL;
+
+#define RB_PIN_INTX      0x2000
+#define RB_SLP_GPIO_WAKE 0x10
+
+#define SYS_SAFE_ACCESS(a) do { a } while (0)
+
+typedef enum { GPIO_CFGLR_IN_PUPD } GPIOModeTypeDef;
+#define funPinMode(pin, mode) ((void)(pin), (void)(mode))
+
+typedef enum { GPIOA_IRQn, GPIOB_IRQn } IRQn_Type;
+#define NVIC_EnableIRQ(n) ((void)(n))
+
+#endif
