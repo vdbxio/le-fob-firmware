@@ -3,26 +3,43 @@
 #include "ws2812.h"
 
 /*
- * WS2812 timing, in SysTick ticks.
+ * WS2812 bit timing.
  *
- * funconfig.h runs SysTick straight off HCLK, so one tick is one CPU cycle
- * (16.7 ns at 60 MHz) and these convert cleanly from the datasheet's
- * nanoseconds. Waiting on the free-running counter rather than counting
- * nops means the timing does not depend on what the compiler emitted, and
- * a bit that overruns slightly does not accumulate error into the next one.
+ * These are the WS2812B-V5/V6 numbers, which are NOT the classic WS2812B
+ * ones and are the reason an earlier version of this driver produced
+ * garbage on V5+ parts:
+ *
+ *              V5/V6 datasheet      classic WS2812B (0.35/0.8/0.7/0.6 +-150ns)
+ *   T0H        220 ns .. 380 ns     200 .. 500
+ *   T0L        580 ns .. 1 us       650 .. 950
+ *   T1H        580 ns .. 1 us       550 .. 850
+ *   T1L        580 ns .. 1 us       450 .. 750
+ *   RES        > 280 us             > 50
+ *
+ * The trap is T1L. Classic WS2812B has a fixed ~1.25 us bit period, so
+ * driving it as "period minus high time" is fine. V5 does not: a 1 bit is
+ * 580 ns high *and* 580 ns low at minimum, so its period is longer than a
+ * 0 bit's. Deriving the low time from a fixed 1.25 us period gives
+ * T1L = 1250 - 700 = 550 ns, which is under the V5 minimum -- every 1 bit
+ * out of spec, while every 0 bit still looks fine.
+ *
+ * So the four times are specified independently and a bit's period is
+ * whatever they add up to: 1100 ns for a 0, 1400 ns for a 1. The values
+ * below sit inside both columns above, so this drives either variant.
  */
-#define TICKS_PER_US   (FUNCONF_SYSTEM_CORE_CLOCK / 1000000)
+#define TICKS_PER_US    (FUNCONF_SYSTEM_CORE_CLOCK / 1000000)
 #define NS_TO_TICKS(ns) (((ns) * TICKS_PER_US + 500) / 1000)
 
-#define T_PERIOD  NS_TO_TICKS(1250)  /* one bit, T0H+T0L == T1H+T1L */
-#define T1_HIGH   NS_TO_TICKS(700)   /* "1" bit high time  */
-#define T0_HIGH   NS_TO_TICKS(350)   /* "0" bit high time  */
+#define T0_HIGH  NS_TO_TICKS(300)
+#define T0_LOW   NS_TO_TICKS(800)
+#define T1_HIGH  NS_TO_TICKS(700)
+#define T1_LOW   NS_TO_TICKS(700)
 
 /*
- * Latch time. WS2812B latches after 50 us, but the WS2812E on this board
- * (and most recent clones) need >280 us or the first pixel eats the frame.
+ * Latch time. V5 wants > 280 us; 400 gives margin at no real cost, since a
+ * refresh happens at most every 20 ms.
  */
-#define T_RESET_US 300
+#define T_RESET_US 400
 
 /* Physical bit within the port register. PB pins carry 0x80000000 as a
  * port marker in ch32fun's pin encoding; mask it off. */
@@ -54,18 +71,18 @@ void ws2812_show(const uint8_t *grb, int count)
 	int            len = count * 3;
 
 	/*
-	 * One frame of 4 pixels is 96 bits * 1.25 us = 120 us with interrupts
-	 * off. That delays the 1 ms SysTick by at most ~12% of one period, and
+	 * One frame of 4 pixels is 96 bits at 1.1-1.4 us, so 105-135 us with
+	 * interrupts off depending on the data. That delays the 1 ms SysTick by at most ~12% of one period, and
 	 * because the tick handler advances CMP by a fixed interval rather than
 	 * reloading from "now", the delay does not accumulate into clock drift.
 	 */
 	__disable_irq();
 
 	/*
-	 * `next` is the ideal start of the current bit slot. Both edges are
-	 * derived from it, never from "now" -- so the few cycles of loop
-	 * overhead shift an edge slightly but cannot accumulate across the
-	 * 96 bits of a frame.
+	 * `next` is the ideal start of the current bit slot, and a slot is as
+	 * long as that bit's own high plus low time. Both edges are derived
+	 * from `next`, never from "now", so the few cycles of loop overhead
+	 * shift an edge slightly but cannot accumulate across a frame.
 	 *
 	 * The order here matters. Everything for this bit is computed *before*
 	 * the alignment wait, so that once the wait falls through, the only
@@ -75,13 +92,15 @@ void ws2812_show(const uint8_t *grb, int count)
 	 * pulse by the length of that arithmetic -- which for a 350 ns "0" bit
 	 * is most of the pulse.
 	 */
-	uint32_t next = funSysTick32() + T_PERIOD;
+	uint32_t next = funSysTick32() + T1_HIGH;
 
 	while (len--) {
 		uint8_t byte = *p++;
 
 		for (int bit = 0; bit < 8; bit++) {
-			uint32_t t_fall = next + ((byte & 0x80) ? T1_HIGH : T0_HIGH);
+			int      one    = byte & 0x80;
+			uint32_t t_fall = next + (one ? T1_HIGH : T0_HIGH);
+			uint32_t t_end  = t_fall + (one ? T1_LOW : T0_LOW);
 
 			byte <<= 1;
 
@@ -96,7 +115,7 @@ void ws2812_show(const uint8_t *grb, int count)
 				;
 			R32_PB_CLR = WS_BIT;
 
-			next += T_PERIOD;
+			next = t_end;
 		}
 	}
 

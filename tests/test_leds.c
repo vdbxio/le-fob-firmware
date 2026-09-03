@@ -178,14 +178,35 @@ int main(void)
 	render(500);
 	check(all_dark(), "settled dark before the idle measurement");
 
-	printf("\n== refresh economy ==\n");
+	printf("\n== refresh policy ==\n");
 
+	/*
+	 * Unchanged frames are mostly skipped, but not forever: a keepalive
+	 * bounds how long a dropped frame can leave the pads stuck. So over a
+	 * long idle stretch the chain should be written sometimes, but nowhere
+	 * near every frame.
+	 */
 	int before = frames;
 
 	for (int i = 0; i < 20; i++)
-		render(50); /* nothing is changing; the chain should be left alone */
-	printf("  %d refreshes over 20 idle frames\n", frames - before);
-	check(frames - before == 0, "idle frames do not touch the chain");
+		render(50); /* 1000 ms of nothing changing */
+
+	int idle_pushes = frames - before;
+
+	printf("  %d writes over 1000 ms idle\n", idle_pushes);
+	check(idle_pushes > 0, "keepalive still refreshes while idle");
+	check(idle_pushes < 20, "but does not write on every frame");
+
+	/*
+	 * The failure this guards against: the chain misses a frame, the
+	 * framebuffer still matches the shadow, and nothing is ever resent --
+	 * so the pads stay lit at whatever they were showing. Corrupt the
+	 * captured frame behind the engine's back and check it repairs itself.
+	 */
+	memset(frame, 0xFF, sizeof(frame));
+	for (int i = 0; i < 8; i++)
+		render(50); /* 400 ms, longer than the keepalive interval */
+	check(all_dark(), "a lost frame is repaired without a state change");
 
 	printf("\n%s\n", failures ? "FAILURES" : "all checks passed");
 	return failures ? 1 : 0;

@@ -160,6 +160,45 @@ case the layer is for: a chirp with no gesture behind it. There are none yet
 — battery or status chirps would be the first — so on current firmware the
 white glow is unused by design, and wired up ready.
 
+### Driving the WS2812s
+
+The pads are **WS2812B-V5/V6**, whose timing is not the classic WS2812B
+timing. From the V5 datasheet:
+
+| | V5/V6 | classic WS2812B |
+|---|---|---|
+| T0H | 220 ns – 380 ns | 200 – 500 |
+| T0L | 580 ns – 1 µs | 650 – 950 |
+| T1H | 580 ns – 1 µs | 550 – 850 |
+| T1L | **580 ns – 1 µs** | 450 – 750 |
+| RES | > 280 µs | > 50 µs |
+
+The trap is `T1L`. Classic WS2812B has a fixed ~1.25 µs bit period, so
+driving it as "period minus high time" is fine. V5 does not — a `1` bit is
+580 ns high *and* 580 ns low at minimum, so its period is genuinely longer
+than a `0` bit's. Deriving the low time from a fixed 1.25 µs period gives
+`T1L = 550 ns`, under the V5 minimum: every `1` bit out of spec while every
+`0` bit still looks fine.
+
+So [`ws2812.c`](firmware/ws2812.c) specifies all four times independently and
+lets each bit's period be whatever they add up to — 1100 ns for a `0`,
+1400 ns for a `1`. The values chosen (300 / 800 / 700 / 700 ns) sit inside
+both columns, so the driver works on either variant.
+
+Two further accommodations for these parts, both in
+[`led_anim.c`](firmware/led_anim.c):
+
+- **Keepalive.** Unchanged frames are skipped, but only for up to 250 ms.
+  Without that bound a single dropped frame is permanent: the framebuffer
+  still matches the shadow, so nothing is ever resent, and the pads stay lit
+  at whatever they were showing.
+- **Double push after an idle gap.** V5/V6 parts drop into a low-power state
+  when idle, and the first frame afterwards can be swallowed waking them.
+  The first refresh after 100 ms of quiet is sent twice; the reset gap that
+  ends each frame separates them into two latches. `led_anim_init()` blanks
+  three times for the same reason, since at boot the LEDs have only just
+  powered up.
+
 ### Brightness
 
 `PAD_LED_BRIGHTNESS_PCT` (**10%**) is the single ceiling; every colour any
@@ -253,7 +292,7 @@ firmware/
   lefob.c        entry point, SysTick, main loop
   board.h        pin map and every tunable
   buttons.c/h    GPIO edge IRQs, debounce, gesture state machine
-  ws2812.c/h     bit-banged WS2812 on PB7, runs from RAM
+  ws2812.c/h     bit-banged WS2812B-V5/V6 on PB7, runs from RAM
   led_anim.c/h   per-pixel layering: gesture, on-air, press
   bthome.c/h     BTHome v2 packet builder
   ble_adv.c/h    iSLER advertising bursts

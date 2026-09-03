@@ -9,6 +9,30 @@
  * runs with interrupts off) using well under 1% of the time budget. */
 #define FRAME_MS 20
 
+/*
+ * Push the frame again this often even when nothing has changed.
+ *
+ * Skipping unchanged frames is a real saving, but on its own it means a
+ * single lost frame is permanent: if the chain misses the all-dark frame,
+ * the framebuffer still matches the shadow, so nothing is ever re-sent and
+ * the pads stay lit at whatever they were showing. A keepalive bounds that
+ * to one interval, at a cost of ~120 us every quarter second.
+ */
+#define KEEPALIVE_MS 250
+
+/*
+ * A gap longer than this means the chain has been sitting idle, and the
+ * WS2812B-V5/V6 parts on this board can drop into their low-power state in
+ * that time. Coming out of it, the first frame is unreliable -- it can be
+ * swallowed waking the part up. So the first push after a gap is sent
+ * twice; the reset gap that ends each frame separates them into two
+ * distinct latches.
+ *
+ * This is deliberately cheap insurance rather than a diagnosed fault: an
+ * extra ~120 us, only on the first refresh after an idle period.
+ */
+#define WAKE_GAP_MS 100
+
 /* Blink: on time and full cycle, per repetition. */
 #define BLINK_ON_MS    100
 #define BLINK_CYCLE_MS 210
@@ -62,7 +86,22 @@ static uint8_t  tx_suppress;
 static uint8_t  fb[WS2812_COUNT * 3]; /* wire order: G, R, B */
 static uint8_t  fb_shadow[WS2812_COUNT * 3];
 static uint32_t t_last_frame;
-static uint8_t  primed; /* a frame has been pushed at least once */
+static uint32_t t_last_push; /* last time the chain was actually written */
+static uint8_t  primed;      /* a frame has been pushed at least once */
+
+/* Write the chain, sending twice if it may have gone to sleep since the
+ * last push. */
+static void push(uint32_t now)
+{
+	int woken = !primed || (uint32_t)(now - t_last_push) >= WAKE_GAP_MS;
+
+	ws2812_show(fb, WS2812_COUNT);
+	if (woken)
+		ws2812_show(fb, WS2812_COUNT);
+
+	t_last_push = now;
+	primed      = 1;
+}
 
 /* One identity colour per pad, so a glance tells you which button fired. */
 static const uint8_t pad_colour[WS2812_COUNT][3] = {
@@ -237,14 +276,19 @@ void led_anim_tick(uint32_t now)
 		fb[i * 3 + 2] = scale(rgb[2], level);
 	}
 
-	/* Only touch the chain when the picture actually changed. Every refresh
-	 * costs ~120 us with interrupts disabled, and most ticks change nothing. */
-	if (primed && memcmp(fb, fb_shadow, sizeof(fb)) == 0)
+	/*
+	 * Skip the write when the picture has not changed -- most ticks change
+	 * nothing and every refresh costs ~120 us with interrupts disabled --
+	 * but not indefinitely, so a dropped frame cannot leave the pads stuck.
+	 */
+	int changed = memcmp(fb, fb_shadow, sizeof(fb)) != 0;
+
+	if (primed && !changed &&
+	    (uint32_t)(now - t_last_push) < KEEPALIVE_MS)
 		return;
 
 	memcpy(fb_shadow, fb, sizeof(fb));
-	ws2812_show(fb, WS2812_COUNT);
-	primed = 1;
+	push(now);
 }
 
 int led_anim_busy(void)
@@ -267,12 +311,27 @@ void led_anim_all_off(void)
 
 	memset(fb, 0, sizeof(fb));
 	memcpy(fb_shadow, fb, sizeof(fb));
+
 	ws2812_show(fb, WS2812_COUNT);
-	primed = 1;
+	primed      = 1;
+	t_last_push = 0;
 }
 
 void led_anim_init(void)
 {
 	ws2812_init();
-	led_anim_all_off();
+
+	/*
+	 * Blank the chain several times before trusting it.
+	 *
+	 * At this point the LEDs have only just come up with the rest of the
+	 * board, and a V5/V6 part may still be settling or asleep. A single
+	 * blanking frame that lands too early is simply lost, and because
+	 * led_anim_tick() then sees an unchanged framebuffer it would never
+	 * resend one -- leaving whatever the pixels powered up showing, lit,
+	 * forever. Each call ends with the >280 us reset, so these latch
+	 * separately.
+	 */
+	for (int i = 0; i < 3; i++)
+		led_anim_all_off();
 }
