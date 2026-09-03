@@ -178,6 +178,64 @@ int main(void)
 	render(500);
 	check(all_dark(), "settled dark before the idle measurement");
 
+	printf("\n== pixel 0 is never written by another pad ==\n");
+
+	/*
+	 * A blip was observed on LED 1 (pixel 0) when interacting with any
+	 * button. This settles whether the firmware is responsible: for every
+	 * other pad, and for every layer, dump what actually reaches the chain
+	 * and require pixel 0's three bytes to be zero.
+	 */
+	{
+		static const struct { const char *name; uint8_t evt; } gestures[] = {
+			{ "press",       BTHOME_EVT_PRESS },
+			{ "double",      BTHOME_EVT_DOUBLE_PRESS },
+			{ "triple",      BTHOME_EVT_TRIPLE_PRESS },
+			{ "long",        BTHOME_EVT_LONG_PRESS },
+			{ "hold",        BTHOME_EVT_HOLD_PRESS },
+		};
+		int dirty = 0;
+
+		for (int pad = 1; pad < WS2812_COUNT; pad++) {
+			/* press layer */
+			led_anim_set_pressed((uint8_t)(1u << pad));
+			render(50);
+			if (lit(0)) dirty++;
+			led_anim_set_pressed(0);
+			render(50);
+
+			/* on-air layer */
+			led_anim_set_tx(pad);
+			render(50);
+			if (lit(0)) dirty++;
+			led_anim_set_tx(-1);
+			render(50);
+
+			/* every gesture, sampled right through the animation */
+			for (unsigned g = 0; g < sizeof(gestures)/sizeof(gestures[0]); g++) {
+				led_anim_trigger((uint8_t)pad, gestures[g].evt, now);
+				for (int k = 0; k < 40; k++) {
+					render(20);
+					if (lit(0)) {
+						printf("      pad %d %s lit pixel 0: %02X %02X %02X\n",
+						       pad + 1, gestures[g].name, R(0), G(0), B(0));
+						dirty++;
+					}
+				}
+			}
+		}
+		check(dirty == 0,
+		      "no pad, layer or gesture ever writes pixel 0");
+
+		/* The sweep ends on a hold, whose pulse runs 1400 ms. Let
+		 * everything finish before the next block measures writes. */
+		led_anim_set_pressed(0);
+		led_anim_set_tx(-1);
+		for (int k = 0; k < 90; k++)
+			render(20);
+		check(all_dark(), "sweep leaves every pad dark");
+	}
+
 	printf("\n== no duplicate writes mid-animation ==\n");
 
 	/*
