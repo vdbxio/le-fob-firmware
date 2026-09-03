@@ -85,6 +85,9 @@ static void banner(void)
 	printf("pads   SW1 PB22 | SW2 PB4 | SW3 PB23 | SW4 PA9\n");
 	printf("pixels %d on PB7 (PIXEL0)\n", WS2812_COUNT);
 
+	if (FOB_DISABLE_RADIO)
+		printf("RADIO  DISABLED (FOB_DISABLE_RADIO=1) - LED diagnostic build\n");
+
 	/*
 	 * PB23 leaves the factory as RST#. Until the option bit is cleared,
 	 * pressing SW3 resets the chip instead of registering a press -- which
@@ -102,7 +105,9 @@ int main(void)
 	systick_init();
 	buttons_init();
 	led_anim_init();
-	ble_adv_init();
+
+	if (!FOB_DISABLE_RADIO)
+		ble_adv_init();
 
 	banner();
 
@@ -125,7 +130,9 @@ int main(void)
 				       buttons_event_name(event));
 
 				led_anim_trigger(button, event, now);
-				ble_adv_send_event(button, event);
+
+				if (!FOB_DISABLE_RADIO)
+					ble_adv_send_event(button, event);
 			}
 
 			/*
@@ -134,10 +141,12 @@ int main(void)
 			 * current for this frame.
 			 */
 			led_anim_set_pressed(buttons_pressed_mask());
-			led_anim_set_tx(ble_adv_tx_button());
+			led_anim_set_tx(FOB_DISABLE_RADIO ? -1 : ble_adv_tx_button());
 
 			led_anim_tick(now);
-			ble_adv_tick(now);
+
+			if (!FOB_DISABLE_RADIO)
+				ble_adv_tick(now);
 
 			if (buttons_busy() || led_anim_busy() || ble_adv_busy())
 				t_active = now;

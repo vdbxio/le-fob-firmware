@@ -303,6 +303,30 @@ mid-decode, no animation is running and no advertising burst is outstanding,
 plus `FOB_IDLE_LINGER_MS` of slack so a user between taps of a double-press is
 never cut off.
 
+## Splitting an LED glitch from the radio
+
+A pad LED glitch that lands on the same beat as a gesture has two very
+different possible causes, and they are hard to tell apart by looking:
+
+- the **WS2812 waveform** — see the `T0H` margin table above; the tell is
+  that it lands on pixel 0, the only pixel fed the raw signal from PB7
+- the **radio** — a BLE burst pulls ~18 mA in bursts off the same 3V3 rail,
+  and iSLER runs its own interrupt handler. A gesture starts an animation
+  and a burst in the same millisecond, so the two are perfectly correlated
+  by construction
+
+One flash separates them:
+
+```bash
+make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_DISABLE_RADIO=1" && make flash
+```
+
+Buttons, gestures and LEDs behave exactly as normal; nothing transmits and
+the radio is never initialised (the boot banner says so). If the glitch
+survives, it is the waveform and the bit timing is where to look. If it
+vanishes, it is supply or interrupt coupling from the transmit and none of
+the bit timing is implicated.
+
 ## Tests
 
 `tests/` compiles the target's own `bthome.c` and `buttons.c` natively

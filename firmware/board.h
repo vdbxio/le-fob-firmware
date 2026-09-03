@@ -182,6 +182,30 @@
 #endif
 
 /* ------------------------------------------------------------------ */
+/* Diagnostics                                                        */
+/* ------------------------------------------------------------------ */
+/*
+ * Build the LED path without the radio:
+ *
+ *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_DISABLE_RADIO=1"
+ *
+ * Buttons, gestures and pad LEDs behave exactly as normal; nothing is
+ * transmitted and the radio is never initialised. This exists to split a
+ * class of fault that is otherwise hard to pin down from the outside: an
+ * LED glitch that lands on the same beat as a gesture could be the WS2812
+ * signal itself, or it could be the radio -- a BLE burst pulls ~18 mA in
+ * bursts off the same 3V3 rail, and iSLER runs its own interrupt handler.
+ *
+ * If the glitch survives with the radio out of the picture, it is the
+ * WS2812 waveform (see the T0H margin table in ws2812.c). If it vanishes,
+ * it is supply or interrupt coupling from the transmit, and none of the bit
+ * timing is implicated.
+ */
+#ifndef FOB_DISABLE_RADIO
+#define FOB_DISABLE_RADIO 0
+#endif
+
+/* ------------------------------------------------------------------ */
 /* Sleep                                                              */
 /* ------------------------------------------------------------------ */
 /*
