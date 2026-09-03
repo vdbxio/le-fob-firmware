@@ -29,10 +29,7 @@
 #include "buttons.h"
 #include "led_anim.h"
 #include "ble_adv.h"
-
-#if FOB_SLEEP_ENABLE
-#include "ch5xx_lowpower.h"
-#endif
+#include "power.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
  * SysTick ISR. */
@@ -102,6 +99,10 @@ int main(void)
 	SystemInit();
 	funGpioInitAll(); /* no-op on ch5xx, kept for symmetry */
 
+	/* First: clocks, regulator, and quiescing everything nothing else
+	 * owns. Drivers below configure their own pins over the top. */
+	power_init();
+
 	systick_init();
 	buttons_init();
 	led_anim_init();
@@ -162,16 +163,21 @@ int main(void)
 		if ((uint32_t)(g_millis - t_active) >= FOB_IDLE_LINGER_MS) {
 			led_anim_all_off();
 
+			uint32_t slept_from = power_rtc_ticks();
+
+			power_sleep();
+
 			/*
-			 * No RTC alarm: a button edge is the only thing worth
-			 * waking for. RB_SLP_GPIO_WAKE was armed in buttons_init().
+			 * g_millis did not advance while asleep -- SysTick is
+			 * clocked from HCLK, which stops. Anything that needs real
+			 * elapsed time has to come from the RTC, which does not.
 			 */
-			LowPowerSleepWFI(RB_PWR_RAM2K | RB_PWR_RAMX | RB_PWR_EXTEND);
+			uint32_t slept_ms =
+				power_rtc_elapsed_ms(slept_from, power_rtc_ticks());
 
-			ble_adv_resume(); /* radio comes back up scrambled */
-			DCDCEnable();     /* and the DC-DC is off after sleep */
+			printf("wake after %lums (%s)\n", (unsigned long)slept_ms,
+			       buttons_take_wake() ? "button" : "other");
 
-			buttons_take_wake();
 			t_active = g_millis;
 		} else {
 			__WFI();

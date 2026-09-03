@@ -7,6 +7,7 @@ ADDITIONAL_C_FILES := \
 	led_anim.c \
 	bthome.c \
 	ble_adv.c \
+	power.c \
 	libc_shim.c
 
 CH32FUN := ../ch32fun/ch32fun

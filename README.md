@@ -288,10 +288,22 @@ why the driver writes `R32_PB_CLR` to select falling.
 ### Sleep
 
 Off by default (`FOB_SLEEP_ENABLE` in `board.h`) — a chip that drops into deep
-sleep is harder to talk to during bring-up. The wake path is built and
-compiled either way: the GPIO edge interrupts and `RB_SLP_GPIO_WAKE` are armed
-in `buttons_init()` regardless, and `lefob.c` has the `LowPowerSleepWFI()` call
-behind that one flag. Both configurations are known to build.
+sleep is harder to talk to during bring-up. To try it:
+
+```bash
+make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=1" && make flash
+```
+
+[`power.c`](firmware/power.c) does the setup this needs: the internal DC-DC
+(roughly 60% of the LDO's active current), the LSI for the 32 kHz domain, the
+RTC, and quiescing every pin nothing else owns. That last part is what
+separates a single-digit-microamp sleep from a tens-of-microamps one — a
+floating CMOS input sits near its threshold and draws crossbar current.
+
+**`g_millis` does not advance across a sleep.** SysTick is clocked from HCLK,
+which stops. Anything needing real elapsed time uses `power_rtc_ticks()`,
+which comes from the RTC domain and keeps running — that is also how the wake
+message reports how long it was out.
 
 The loop only considers sleeping once no pad is down, no gesture is
 mid-decode, no animation is running and no advertising burst is outstanding,
