@@ -216,12 +216,18 @@ Two further accommodations for these parts, both in
   Without that bound a single dropped frame is permanent: the framebuffer
   still matches the shadow, so nothing is ever resent, and the pads stay lit
   at whatever they were showing.
-- **Double push after an idle gap.** V5/V6 parts drop into a low-power state
-  when idle, and the first frame afterwards can be swallowed waking them.
-  The first refresh after 100 ms of quiet is sent twice; the reset gap that
-  ends each frame separates them into two latches. `led_anim_init()` blanks
-  three times for the same reason, since at boot the LEDs have only just
-  powered up.
+- **Blanking repeatedly at boot.** `led_anim_init()` blanks three times,
+  because at that point the LEDs have only just powered up and a blanking
+  frame that lands too early is simply lost — and with the framebuffer then
+  matching the shadow, nothing would resend one.
+
+There is deliberately **no** "send the frame twice in case the chain was
+asleep" heuristic. An earlier version had one, keyed on 100 ms since the last
+write, and it was wrong twice over: the blink phases are 100 ms on and 110 ms
+off, so every transition during an animation tripped it and produced a stray
+extra flash partway through a multi-blink gesture; and it was redundant
+anyway, since the keepalive means the chain is written at least every 250 ms
+and never sits idle long enough to sleep.
 
 ### Brightness
 

@@ -178,6 +178,32 @@ int main(void)
 	render(500);
 	check(all_dark(), "settled dark before the idle measurement");
 
+	printf("\n== no duplicate writes mid-animation ==\n");
+
+	/*
+	 * Regression: an earlier version resent the frame whenever more than
+	 * 100 ms had passed since the last write, meaning to catch a chain
+	 * that had gone to sleep. The blink phases are 100 ms on and 110 ms
+	 * off, so every transition during an animation tripped it and the
+	 * frame went out twice -- a stray extra flash partway through a
+	 * multi-blink gesture.
+	 *
+	 * A double press blinks twice: on, off, on, off. That is four changes
+	 * of picture, so it must be four writes, not eight.
+	 */
+	led_anim_trigger(1, BTHOME_EVT_DOUBLE_PRESS, now);
+
+	int blink_before = frames;
+
+	for (int i = 0; i < 24; i++)
+		render(20); /* 480 ms, past the end of a two-blink pattern */
+
+	int blink_writes = frames - blink_before;
+
+	printf("  %d writes across a two-blink animation\n", blink_writes);
+	check(blink_writes == 4, "one write per visual change, none doubled");
+	check(all_dark(), "and it ends dark");
+
 	printf("\n== refresh policy ==\n");
 
 	/*

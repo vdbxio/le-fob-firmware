@@ -21,17 +21,23 @@
 #define KEEPALIVE_MS 250
 
 /*
- * A gap longer than this means the chain has been sitting idle, and the
- * WS2812B-V5/V6 parts on this board can drop into their low-power state in
- * that time. Coming out of it, the first frame is unreliable -- it can be
- * swallowed waking the part up. So the first push after a gap is sent
- * twice; the reset gap that ends each frame separates them into two
- * distinct latches.
+ * Note on what is deliberately NOT here.
  *
- * This is deliberately cheap insurance rather than a diagnosed fault: an
- * extra ~120 us, only on the first refresh after an idle period.
+ * An earlier version sent the frame twice whenever more than 100 ms had
+ * passed since the last write, on the theory that a V5/V6 part may drop
+ * into its low-power state and swallow the frame that wakes it. That was
+ * speculation, and it was actively wrong: the blink phases are 100 ms on
+ * and 110 ms off, so *every* transition during an animation cleared that
+ * threshold and got sent twice -- visible as a stray extra flash partway
+ * through a multi-blink gesture.
+ *
+ * It was also redundant. The keepalive above means the chain is written at
+ * least every 250 ms and so never sits idle long enough to sleep, and it
+ * already bounds the damage from any single dropped frame. If a sleep-wake
+ * problem ever does show up, the fix belongs at boot (see led_anim_init)
+ * or in the keepalive interval, not in a per-write heuristic that cannot
+ * tell an idle chain from an animating one.
  */
-#define WAKE_GAP_MS 100
 
 /* Blink: on time and full cycle, per repetition. */
 #define BLINK_ON_MS    100
@@ -89,16 +95,9 @@ static uint32_t t_last_frame;
 static uint32_t t_last_push; /* last time the chain was actually written */
 static uint8_t  primed;      /* a frame has been pushed at least once */
 
-/* Write the chain, sending twice if it may have gone to sleep since the
- * last push. */
 static void push(uint32_t now)
 {
-	int woken = !primed || (uint32_t)(now - t_last_push) >= WAKE_GAP_MS;
-
 	ws2812_show(fb, WS2812_COUNT);
-	if (woken)
-		ws2812_show(fb, WS2812_COUNT);
-
 	t_last_push = now;
 	primed      = 1;
 }
