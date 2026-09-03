@@ -7,8 +7,9 @@
 *.map
 *_ext.bin
 
-# ch32fun is a working clone, not part of this repo's history
-/ch32fun/
+# ch32fun is vendored (see ch32fun/VENDORED.md). Its own .gitignore, which
+# still applies from within this repo, excludes the minichlink binaries and
+# the generated linker script.
 
 # macOS / Proton Drive
 .DS_Store
