@@ -37,9 +37,17 @@ SysTick_Type *SysTick = &systick_storage;
 /* power.c calls these on wake; not under test here beyond being called. */
 void ble_adv_resume(void) {}
 
-int g_rearm_calls, g_ws2812_init_calls;
-void buttons_rearm(void) { g_rearm_calls++; }
-void ws2812_init(void)   { g_ws2812_init_calls++; }
+int g_rearm_calls, g_ws2812_resume_calls;
+/* Recorded so the test can prove the timebase is restored *before* anything
+ * that might delay -- Delay_Us spins on SysTick with no timeout. */
+unsigned g_systick_ctlr_at_resume;
+
+void buttons_rearm(void)  { g_rearm_calls++; }
+void ws2812_resume(void)
+{
+	g_ws2812_resume_calls++;
+	g_systick_ctlr_at_resume = SysTick->CTLR;
+}
 void ws2812_show(const unsigned char *grb, int n) { (void)grb; (void)n; }
 
 /* Defined in power.c; declared here because it is an interrupt handler and
@@ -127,7 +135,7 @@ int main(void)
 	 */
 	R8_SLP_WAKE_CTRL    = 0;
 	g_rearm_calls       = 0;
-	g_ws2812_init_calls = 0;
+	g_ws2812_resume_calls = 0;
 	R8_SLP_POWER_CTRL   = 0;
 	power_sleep();
 
@@ -135,8 +143,17 @@ int main(void)
 	      "GPIO wake re-armed on the way out of sleep");
 	check(g_rearm_calls == 1,
 	      "button pad modes and interrupts re-armed");
-	check(g_ws2812_init_calls == 1,
+	check(g_ws2812_resume_calls == 1,
 	      "WS2812 data pin put back to an output");
+
+	/*
+	 * Ordering. Everything in the restore may delay, and ch32fun's
+	 * Delay_Us spins on SysTick->CNT with no timeout -- so the timebase
+	 * has to be running before any of it. Restoring it last hung the fob
+	 * on its first wake.
+	 */
+	check(g_systick_ctlr_at_resume & SYSTICK_CTLR_STE,
+	      "SysTick counter already running when the restore begins");
 
 	printf("\n== RTC handler clears its flag ==\n");
 

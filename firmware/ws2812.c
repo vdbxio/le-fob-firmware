@@ -241,11 +241,16 @@ void ws2812_show(const uint8_t *grb, int count)
 	Delay_Us(T_RESET_US);
 }
 
-void ws2812_init(void)
+void ws2812_resume(void)
 {
 	/* 20 mA drive: the data line runs the length of the board to W1 and
 	 * wants fast edges to keep the 350 ns field unambiguous. */
 	funPinMode(PIN_WS2812, GPIO_CFGLR_OUT_10Mhz_PP);
 	funDigitalWrite(PIN_WS2812, FUN_LOW);
+}
+
+void ws2812_init(void)
+{
+	ws2812_resume();
 	Delay_Us(T_RESET_US);
 }

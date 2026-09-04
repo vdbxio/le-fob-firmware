@@ -204,37 +204,34 @@ void power_sleep(void)
 	                 RB_PWR_MUST_0010);
 
 	/*
-	 * Waking generates a partial reset -- the datasheet calls it "a
-	 * selective reset of the registers that are powered down in sleep
-	 * mode" and does not enumerate which. Rather than reason about what
-	 * survives, put all of it back: it costs a few microseconds and it
-	 * removes the question.
+	 * Restore the timebase before anything else.
 	 *
-	 * An earlier version restored only the interrupt registers, leaving
-	 * pin modes alone, and the result was a fob that slept beautifully
-	 * until the first press and was never right afterwards -- no LED
-	 * output at all, because PB7 was no longer an output, and a thrash of
-	 * short sleeps averaging 575 uA because floating inputs and unarmed
-	 * pins kept waking it.
+	 * This ordering is load-bearing. Everything below may delay, and
+	 * ch32fun's Delay_Us() spins on SysTick->CNT with no timeout -- so if
+	 * the counter is not running, it never returns. Waking is "a selective
+	 * reset of the registers that are powered down in sleep mode" and
+	 * SysTick is a core peripheral, so its control register cannot be
+	 * assumed to have survived. Restoring it last, as an earlier version
+	 * did, hangs the fob on its first wake.
 	 */
-	power_apply_pin_config();  /* quiescing, FET gates, I2C idle state */
-	buttons_rearm();           /* pad modes and their edge interrupts   */
-	ws2812_init();             /* PB7 back to an output, chain reset     */
-	power_arm_gpio_wake();
-
-	/* The DC-DC is switched off across sleep and the radio comes back in
-	 * an undefined state; both have to be re-established before use. */
-	DCDCEnable();
-
-	if (!FOB_DISABLE_RADIO)
-		ble_adv_resume();
+	SysTick->CTLR = SYSTICK_CTLR_STE | SYSTICK_CTLR_STIE | SYSTICK_CTLR_STCLK;
+	SysTick->SR   = 0;
+	SysTick->CMP  = SysTick->CNT + (FUNCONF_SYSTEM_CORE_CLOCK / 1000);
 
 	/*
-	 * Restart the millisecond tick. g_millis did not advance while we were
-	 * out -- SysTick is clocked from HCLK, which stopped -- so everything
-	 * timed against it resumes where it left off rather than jumping.
+	 * Then put back everything else the partial reset may have taken. The
+	 * datasheet does not enumerate what survives, so this restores all of
+	 * it rather than reasoning about each: a few microseconds against a
+	 * class of faults that present as a fob which sleeps perfectly and is
+	 * never right again afterwards.
 	 */
-	SysTick->SR    = 0;
-	SysTick->CMP   = SysTick->CNT + (FUNCONF_SYSTEM_CORE_CLOCK / 1000);
-	SysTick->CTLR |= SYSTICK_CTLR_STIE;
+	DCDCEnable();              /* switched off across sleep              */
+	power_apply_pin_config();  /* quiescing, FET gates, I2C idle state   */
+	buttons_rearm();           /* pad modes and their edge interrupts    */
+	ws2812_resume();           /* PB7 back to an output; no delay needed,
+	                            * the line has been low all sleep        */
+	power_arm_gpio_wake();
+
+	if (!FOB_DISABLE_RADIO)
+		ble_adv_resume();     /* comes back in an undefined state       */
 }

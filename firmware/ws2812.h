@@ -14,6 +14,16 @@
 void ws2812_init(void);
 
 /*
+ * The pin half of ws2812_init(), without the latch delay.
+ *
+ * For use on the wake path, where two things make the delay both unwanted
+ * and unsafe: the data line has been held low for the whole sleep, which is
+ * orders of magnitude longer than the 280 us the chain needs to latch; and
+ * the delay spins on the SysTick counter, which may not be running yet.
+ */
+void ws2812_resume(void);
+
+/*
  * Push `count` pixels out of the chain. `grb` is 3 bytes per pixel in
  * wire order: green, red, blue.
  *

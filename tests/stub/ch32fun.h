@@ -84,6 +84,8 @@ extern unsigned short R16_RTC_CNT_DIV1;
 #define SysTick_IRQn 12
 #define NVIC_ClearPendingIRQ(n) ((void)(n))
 #define SYSTICK_CTLR_STIE (1 << 1)
+#define SYSTICK_CTLR_STE  (1 << 0)
+#define SYSTICK_CTLR_STCLK (1 << 2)
 #define FUNCONF_SYSTEM_CORE_CLOCK 60000000
 
 typedef struct { unsigned CTLR, SR; unsigned long long CNT, CMP; } SysTick_Type;
