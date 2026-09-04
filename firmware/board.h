@@ -222,13 +222,19 @@
 #endif
 
 /*
- * Rounds for the periodic status chirp. Fewer than a button event: a
- * missed chirp is repaired by the next one, whereas a missed press is
- * simply gone. Each round is one wake-cycle's worth of radio, so this
- * trades reliability of a single chirp against battery directly.
+ * Rounds for the periodic status chirp. Matches the button burst.
+ *
+ * It was 4, on the reasoning that a missed chirp is repaired by the next
+ * one. On hardware that was wrong: a connectionless advertisement only
+ * lands when it overlaps the receiver's scan window, so landing odds scale
+ * with airtime. A 12-round press ("questionable but mostly there") lands;
+ * a 4-round chirp landed about one time in six, which at a 60 s interval is
+ * a gap of minutes -- past Home Assistant's availability timeout. The chirp
+ * is the availability signal and, unlike a press, cannot be retried by a
+ * human, so if anything it wants at least as much airtime as a press.
  */
 #ifndef ADV_HEARTBEAT_ROUNDS
-#define ADV_HEARTBEAT_ROUNDS 4
+#define ADV_HEARTBEAT_ROUNDS 12
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -237,10 +243,12 @@
 /*
  * How often the fob wakes on its own to advertise, with no button pressed.
  *
- * Measured 2026-09-04: a chirp is ~100 ms awake and ~0.13 uAh -- about
- * fifteen times cheaper than a button press, because there is no LED
- * animation and only four burst rounds. Against a 28.5 uA floor on the
- * 120 mAh cell:
+ * Measured 2026-09-04 at 4 heartbeat rounds: ~100 ms awake, ~0.13 uAh.
+ * ADV_HEARTBEAT_ROUNDS is now 12, so a chirp is longer -- on the order of
+ * a button press's burst but with no LED animation, so perhaps ~0.3 uAh;
+ * this wants re-measuring. Even at 0.3 uAh the interval dominates only
+ * loosely. Against a 28.5 uA floor on the 120 mAh cell (numbers below are
+ * the old 4-round figures and slightly optimistic now):
  *
  *      interval   chirps/day   uAh/day   days
  *        30 s        2880        372      163   (floor alone is 684)
@@ -293,15 +301,15 @@
  * Whether the periodic chirp carries a BTHome text object (0x53) with the
  * human-readable charger state, or the plain button-none frame.
  *
- * Off by default: the text frame has not been confirmed received, and when
- * it was the default the interval broadcast stopped landing in Home
- * Assistant entirely. The button-none frame is the one HA has accepted
- * reliably. Turn this on only to test the text object:
+ * On by default. The text object is confirmed received -- Home Assistant
+ * showed "USB idle" from a chirp -- so the earlier "interval broadcast not
+ * landing" was airtime, not the frame, and is addressed by
+ * ADV_HEARTBEAT_ROUNDS above. Set to 0 for the plain button-none chirp:
  *
- *     make CHIRP_TEXT=1 flash
+ *     make CHIRP_TEXT=0 flash
  */
 #ifndef FOB_CHIRP_TEXT
-#define FOB_CHIRP_TEXT 0
+#define FOB_CHIRP_TEXT 1
 #endif
 
 /*
