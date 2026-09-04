@@ -59,6 +59,49 @@ discharge mode by default (`REG05H[7]`), so this is not currently live — but
 any firmware that enables it must then kick it (`REG02H[6]`), and a fob that
 mysteriously reboots every 40–160 s on battery would be this.
 
+## PCB_OTP turns off *both* FETs
+
+Worth knowing before touching the NTC network, because it presents as a
+completely dead board:
+
+> *"When PCB_OTP is selected and the NTC voltage is lower than the NTC hot
+> threshold, **both the Q2 and Q1 are turned off**. The NTC_FAULT status is
+> set (REG09H[1])… The IC Operation resumes when the NTC voltage returns to
+> safe range."*
+
+Q1 is the IN→SYS path and Q2 is BAT→SYS, so a low NTC kills *both* — the
+board will not run from the battery **or** from USB. It is not latched; it
+recovers as soon as NTC is back in range.
+
+And PCB_OTP is what is selected out of the box. Table 5:
+
+| EN_NTC | DIS_PCB_OTP | Function |
+|---|---|---|
+| 0 | x | Disabled |
+| 1 | 1 | NTC (resistor-divided) |
+| **1** | **0** | **PCB_OTP** ← default |
+
+So removing the NTC divider without tying the pin somewhere leaves NTC low
+or floating, trips PCB_OTP, and the board draws only leakage.
+
+### Getting a sleep measurement without firmware
+
+Clearing `EN_NTC` needs I²C, which needs the MCU, which needs SYS — and SYS
+is exactly what the fault turned off. There is no way out of that in
+firmware.
+
+The hardware route works and is what the datasheet recommends anyway: **tie
+NTC to VDD**. Refit the VDD-side resistor and leave the GND-side one off, or
+bridge NTC to VDD directly. Then:
+
+- no divider current, which was the point;
+- NTC high, so PCB_OTP does not trip and both FETs stay on;
+- charging inhibited, because NTC at VDD reads as maximally cold — but *"the
+  NTC function works only in charge mode"*, so discharge is unaffected and
+  the sleep figure is measurable.
+
+Charging comes back once firmware can clear `EN_NTC`.
+
 ## NTC leakage
 
 The NTC divider is a permanent DC path from VDD to GND and is the largest
