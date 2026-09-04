@@ -241,7 +241,7 @@ documents that field as one that must be written with `0010`; WCH's
 Flash with sleep enabled and re-measure:
 
 ```bash
-make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=1" && make flash
+make clean && make SLEEP=1 flash
 ```
 
 The boot banner states which build is running, so a capture cannot be

@@ -300,7 +300,7 @@ lasts a day and one that lasts months.
 For bring-up work where you would rather the chip stayed awake:
 
 ```bash
-make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=0"
+make clean && make SLEEP=0 flash
 ```
 
 The boot banner states which build is running.
@@ -344,7 +344,7 @@ different possible causes, and they are hard to tell apart by looking:
 One flash separates them:
 
 ```bash
-make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_DISABLE_RADIO=1" && make flash
+make clean && make RADIO=0 flash
 ```
 
 Buttons, gestures and LEDs behave exactly as normal; nothing transmits and

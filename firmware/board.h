@@ -149,24 +149,25 @@
 #endif
 
 /*
- * The charger driver is OFF by default.
+ * The charger driver, on by default.
  *
- * It is not proven on hardware, and its failure mode is severe rather than
- * inconvenient: it read-modify-writes REG06, one bit of which is FET_DIS,
- * and setting that puts the part into shipping mode -- from which this board
- * cannot recover without USB. The I2C library it sits on can silently
- * corrupt a received byte (it re-reads DATAR when BTF is set, overwriting
- * the value), so a bad read becomes a bad write.
+ * It was off while it was unproven, because its original failure mode was
+ * severe: a blind read-modify-write of REG06 over an I2C library that can
+ * silently corrupt a byte, with bit 5 of that register being FET_DIS --
+ * shipping mode, from which this board cannot recover without USB.
  *
- * charger.c now verifies every write and reverts the part to default mode if
- * it cannot, but until that has actually been exercised on a board the
- * conservative default is not to run it at all. Enable deliberately:
+ * That is no longer the shape of it. Every write is verified by reading
+ * back, FET_DIS is force-cleared on every REG06 write rather than
+ * preserved, a failed configuration resets the part to default mode, and
+ * a bus that does not answer results in no writes at all. The failure
+ * mode is now a word in the status text ("chgr nak", "chgr id?",
+ * "chgr cfg!") instead of a dead board -- which, on a board with no
+ * console, is the only diagnostic channel there is anyway.
  *
- *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude \
- *         -I../ch32fun/examples_ch5xx/i2c_sensors -DFOB_ENABLE_CHARGER=1"
+ *     make CHARGER=0 flash        to build without it
  */
 #ifndef FOB_ENABLE_CHARGER
-#define FOB_ENABLE_CHARGER 0
+#define FOB_ENABLE_CHARGER 1
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -291,7 +292,7 @@
 /*
  * Build the LED path without the radio:
  *
- *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_DISABLE_RADIO=1"
+ *     make clean && make RADIO=0 flash
  *
  * Buttons, gestures and pad LEDs behave exactly as normal; nothing is
  * transmitted and the radio is never initialised. This exists to split a
@@ -313,8 +314,7 @@
  * Build without the internal pull-ups that power.c puts on otherwise-unused
  * pins:
  *
- *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude \
- *         -DFOB_SLEEP_ENABLE=1 -DFOB_QUIESCE_PULLUPS=0"
+ *     make clean && make PULLUPS=0 flash
  *
  * A pull-up is the right thing for an input that would otherwise float, but
  * it is exactly the wrong thing for one that something else holds low: the
@@ -345,7 +345,7 @@
  * Set to 0 for bring-up work where you would rather the chip stayed awake
  * and responsive:
  *
- *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=0"
+ *     make clean && make SLEEP=0 flash
  */
 #ifndef FOB_SLEEP_ENABLE
 #define FOB_SLEEP_ENABLE 1

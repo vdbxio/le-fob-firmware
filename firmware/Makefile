@@ -26,6 +26,47 @@ EXTRA_CFLAGS += -ffreestanding -Iinclude
 # ch32fun tree rather than in extralibs, so it needs its own include path.
 EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
 
+# ---------------------------------------------------------------------------
+# Build knobs. Use these, not EXTRA_CFLAGS on the command line.
+#
+#   make CHARGER=0 flash        charger driver out
+#   make SLEEP=0 flash          stay awake (bring-up)
+#   make RADIO=0 flash          no BLE (LED diagnostics)
+#   make PULLUPS=0 flash        no internal pull-ups on unused pins
+#   make CHIRP_MS=300000 flash  chirp every 5 min (0 = never)
+#   make SETTLE_US=1000 flash   longer clock settle after wake
+#
+# Two things went wrong with the EXTRA_CFLAGS way and this replaces it:
+#
+#   A command-line EXTRA_CFLAGS *overrides* every += above, so the caller
+#   had to retype the include paths or the build broke.
+#
+#   Worse: `make EXTRA_CFLAGS=... && make flash` builds with the flags and
+#   then flashes without them. The flash target regenerates the linker
+#   script, which relinks the .elf, and the relink uses whatever flags that
+#   second invocation had -- the defaults. The board silently got the wrong
+#   build. Knobs passed to a single `make ... flash` apply to both the build
+#   and the flash, because they are the same invocation.
+# ---------------------------------------------------------------------------
+ifdef CHARGER
+EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER=$(CHARGER)
+endif
+ifdef SLEEP
+EXTRA_CFLAGS += -DFOB_SLEEP_ENABLE=$(SLEEP)
+endif
+ifdef RADIO
+EXTRA_CFLAGS += -DFOB_DISABLE_RADIO=$(if $(filter 0,$(RADIO)),1,0)
+endif
+ifdef PULLUPS
+EXTRA_CFLAGS += -DFOB_QUIESCE_PULLUPS=$(PULLUPS)
+endif
+ifdef CHIRP_MS
+EXTRA_CFLAGS += -DCHIRP_INTERVAL_MS=$(CHIRP_MS)
+endif
+ifdef SETTLE_US
+EXTRA_CFLAGS += -DFOB_WAKE_SETTLE_US=$(SETTLE_US)
+endif
+
 all : $(TARGET).bin
 
 include $(CH32FUN)/ch32fun.mk
