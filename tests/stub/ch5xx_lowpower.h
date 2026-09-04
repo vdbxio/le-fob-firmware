@@ -18,6 +18,8 @@ static inline void LowPowerSleepWFI(unsigned power_plan)
 {
 	g_last_power_plan = power_plan;
 	g_systick_ctlr_at_sleep = SysTick->CTLR;
+	/* Faithful to the real helper: it sets SLEEPDEEP and leaves it set. */
+	NVIC->SCTLR |= (1u << 2);
 }
 
 #endif

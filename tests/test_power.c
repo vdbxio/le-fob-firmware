@@ -33,6 +33,8 @@ unsigned g_systick_ctlr_at_sleep;
 
 static SysTick_Type systick_storage;
 SysTick_Type *SysTick = &systick_storage;
+static NVIC_Type nvic_storage;
+NVIC_Type *NVIC = &nvic_storage;
 
 /* power.c calls these on wake; not under test here beyond being called. */
 void ble_adv_resume(void) {}
@@ -178,6 +180,26 @@ int main(void)
 	 * optimisation.
 	 */
 	check(g_invalidate_calls == 1, "LED shadow invalidated so the next tick redraws");
+
+	printf("\n== SLEEPDEEP does not leak into idle ==\n");
+
+	/*
+	 * The real LowPowerSleepWFI() sets SCTLR.SLEEPDEEP and never clears
+	 * it, and WFI does not clear it either. Left set, every subsequent
+	 * idle WFI in the main loop is a deep sleep: the chip partial-resets
+	 * and comes back on the next SysTick with none of the restore having
+	 * run, because that path is a bare WFI. A capture shows it as the fob
+	 * dropping to 0 uA for milliseconds in the middle of an LED animation.
+	 */
+	nvic_storage.SCTLR = 0;
+	power_sleep();
+	check(!(nvic_storage.SCTLR & (1u << 2)),
+	      "SLEEPDEEP cleared on the way out of deep sleep");
+
+	nvic_storage.SCTLR = (1u << 2); /* pretend something left it set */
+	power_idle();
+	check(!(nvic_storage.SCTLR & (1u << 2)),
+	      "power_idle() clears it before its own WFI regardless");
 
 	printf("\n== RTC handler clears its flag ==\n");
 

@@ -40,6 +40,16 @@ void power_apply_pin_config(void);
 void power_sleep(void);
 
 /*
+ * Idle until the next interrupt -- a plain WFI with the clocks running,
+ * not a deep sleep. Use this for the "nothing to do until the next tick"
+ * case; power_sleep() is for the "nothing to do at all" case.
+ *
+ * Exists because the two are one bit apart and that bit is sticky. See the
+ * implementation.
+ */
+void power_idle(void);
+
+/*
  * Free-running 32.768 kHz counter from the RTC domain, which keeps running
  * through deep sleep. Wraps once per day.
  */

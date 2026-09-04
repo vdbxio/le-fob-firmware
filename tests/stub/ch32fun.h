@@ -94,4 +94,9 @@ void DelaySysTick(unsigned n);
 typedef struct { unsigned CTLR, SR; unsigned long long CNT, CMP; } SysTick_Type;
 extern SysTick_Type *SysTick;
 
+/* Only SCTLR matters here: bit 2 is SLEEPDEEP, and it is sticky. */
+typedef struct { unsigned SCTLR; } NVIC_Type;
+extern NVIC_Type *NVIC;
+#define __WFI() ((void)0)
+
 #endif

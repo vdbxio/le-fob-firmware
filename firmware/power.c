@@ -132,6 +132,13 @@ void power_init(void)
 	power_arm_gpio_wake();
 }
 
+void power_idle(void)
+{
+	/* Belt and braces: never trust SLEEPDEEP to be clear on the way in. */
+	NVIC->SCTLR &= ~(1 << 2);
+	__WFI();
+}
+
 uint32_t power_rtc_ticks(void)
 {
 	return (uint32_t)R16_RTC_CNT_LSI |
@@ -202,6 +209,28 @@ void power_sleep(void)
 	 */
 	LowPowerSleepWFI(RB_PWR_RAM2K | RB_PWR_RAMX | RB_PWR_EXTEND |
 	                 RB_PWR_MUST_0010);
+
+	/*
+	 * Clear SLEEPDEEP. This is the fix for the LEDs.
+	 *
+	 * LowPowerSleepWFI() sets NVIC->SCTLR bit 2 before its WFI and does
+	 * not clear it afterwards. Nothing about WFI clears it either. So from
+	 * the first deep sleep onward, *every* WFI in the firmware is a deep
+	 * sleep -- including the main loop's idle-until-next-tick, which is
+	 * meant to be a plain halt with the clocks running.
+	 *
+	 * The result, visible in a capture, is the fob dropping to 0 uA for
+	 * milliseconds at a time in the middle of an LED animation: each idle
+	 * WFI partial-resets the chip and comes back on the next SysTick
+	 * without running any of the restore below, because that path is a
+	 * bare WFI. The WS2812 data pin flaps between frames and the picture
+	 * lands shifted -- coherent, but on the wrong pixels.
+	 *
+	 * ch32fun's own LowPowerIdleWFI() clears this bit before its WFI, and
+	 * the ble_beacon example happens to call it after every sleep, which
+	 * is why the example never sees this.
+	 */
+	NVIC->SCTLR &= ~(1 << 2);
 
 	/*
 	 * Restore the timebase before anything else.

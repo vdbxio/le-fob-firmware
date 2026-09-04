@@ -207,12 +207,12 @@ int main(void)
 
 			t_active = g_millis;
 		} else {
-			__WFI();
+			power_idle();
 		}
 #else
 		/* Idle until the next interrupt rather than spinning; this is
 		 * the same wake path sleep uses, minus the power gating. */
-		__WFI();
+		power_idle();
 #endif
 	}
 }
