@@ -21,8 +21,9 @@ Of those, **only VIN plug-in is reachable on this board**:
 - `FET_DIS=0` needs an I²C write, and in shipping mode the MCU has no power
   to make it.
 - `INT = Low for 2 s` needs something to pull the charger's INT pin down.
-  INT goes only to **PA4 on the MCU**, which is likewise unpowered. SW1–SW4
-  all land on the MCU too, so no button can reach it.
+  INT is routed only to **PA4 on the MCU** — and on the current board that
+  jumper is DNP, so it reaches nothing at all. Even were it fitted, the MCU
+  is unpowered in shipping mode, and SW1–SW4 all land on that same MCU.
 
 Nothing currently sets `FET_DIS=1`, so the part should not be entering
 shipping mode today. The gap is what happens if it ever does — a future
@@ -57,6 +58,14 @@ Q2 off means SYS collapses and the MCU reboots. The watchdog is off in
 discharge mode by default (`REG05H[7]`), so this is not currently live — but
 any firmware that enables it must then kick it (`REG02H[6]`), and a fob that
 mysteriously reboots every 40–160 s on battery would be this.
+
+## NTC leakage
+
+The NTC divider is a permanent DC path from VDD to GND and is the largest
+single item in the idle budget — see
+[power-budget.md](power-budget.md). Awinic's own guidance is to omit it when
+no thermistor is used: tie NTC to VDD and clear `EN_NTC`. Both halves matter,
+and the firmware half needs the driver below.
 
 ## Firmware gap
 

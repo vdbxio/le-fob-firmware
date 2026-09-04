@@ -30,36 +30,54 @@ combination — `RAM2K + RAM24K + CK32K(LSI) + CORE + EXTEND` — is the
 **2.3 µA** row. So the MCU is ~1% of what is being drawn, and there is
 nothing left to win in the sleep code. The remaining 213 µA is board-level.
 
-### What 213 µA looks like
+### The NTC divider
 
-On an always-on 3V3 rail:
+Awinic names this exact failure mode in the AW32001 pin description:
 
-| | |
+> *"Program the hot and cold temperature window with resistor dividers from
+> VDD to GND, and NTC is the middle node. Pull NTC to VDD if NTC function is
+> not used. If NTC function is unused, it is suggested to disable the NTC
+> function and tie the NTC port to VDD **for decreasing leakage current of
+> battery**, because PCB_OTP is default."*
+
+A divider from VDD to GND is a permanent DC path — it draws whether the fob
+is asleep, awake or in shipping mode. And the quiescent figure budgeted above
+never covered it: `IBAT_Q` is specified *"not include the current from
+external NTC resistor"*.
+
+If the 213 µA gap is this divider, its total resistance is:
+
+| VDD | R total |
 |---|---|
-| 10k + 10k divider | 165 µA |
-| 22k + 22k divider | 75 µA |
-| 47k + 47k divider | 35 µA |
-| CH592 internal pull-up into a held-low pin | 65–165 µA |
+| 3.3 V | 15.5 k |
+| 3.7 V | 17.4 k |
+| 4.0 V | 18.8 k |
+| 4.2 V | 19.7 k |
 
-Three things worth checking, roughly in order:
+— which is a 10k + 10k divider on the battery rail, almost exactly.
 
-1. **The NTC divider (R11/R12).** A fixed divider across a permanent rail
-   draws continuously and never sleeps. If those are 10k, that is 165 µA on
-   its own and most of the gap. Check the values and what they span.
-2. **The LDO's own quiescent (PJ54M33).** Not yet measured or looked up;
-   small regulators vary from ~1 µA to ~100 µA.
-3. **An internal pull-up sourcing into something held low.** `power.c` puts
-   pull-ups on unused pins, and `PA4` is the AW32001's **open-drain INT** —
-   low whenever asserted. That one is ours, and it is testable in one flash:
+**Lift the GND-side resistor, not the VDD-side one.** That leaves NTC pulled
+toward VDD through the remaining resistor, which is the configuration the
+datasheet recommends for an unused NTC. Lifting the VDD-side one instead
+pulls NTC to ground through the other, which reads as a fault.
 
-   ```bash
-   make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude \
-       -DFOB_SLEEP_ENABLE=1 -DFOB_QUIESCE_PULLUPS=0" && make flash
-   ```
+Expect charging to be inhibited afterwards until `EN_NTC` is cleared over
+I²C — NTC at VDD reads as maximally cold. That needs the charger driver that
+does not exist yet, and is irrelevant to a no-USB sleep measurement.
 
-   Floor drops → it was the pull-ups, and PA4 needs handling properly rather
-   than blanket-quiescing. Floor unchanged → the load is passive board
-   circuitry and the respin is where it gets fixed.
+**For the respin:** do not fit the divider at all. Tie NTC to VDD and clear
+`EN_NTC` in firmware. It is the single largest item in the idle budget and it
+costs a resistor to remove.
+
+### Ruled out
+
+- **`power.c`'s internal pull-ups.** Building with `FOB_QUIESCE_PULLUPS=0`
+  made no measurable difference.
+- **PA4 specifically.** Its jumper is currently DNP, so the pin is not
+  connected to the charger's INT at all — the pull-up was sitting on an
+  unconnected pad. This also means the shipping-mode `INT low for 2 s` wake
+  path is not merely awkward on this board, it is absent: see
+  [charger-power-path.md](charger-power-path.md).
 
 ### What it is worth
 
@@ -68,7 +86,7 @@ On the 120 mAh cell, idle:
 | | |
 |---|---|
 | Floor as measured | **19 days** |
-| With the 213 µA found and removed | **113 days** |
+| With the NTC divider removed | **113 days** |
 
 ## Earlier captures (void)
 
