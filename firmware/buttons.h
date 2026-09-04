@@ -23,6 +23,13 @@
 void buttons_init(void);
 
 /*
+ * Re-apply the interrupt configuration, without disturbing the debounced
+ * state. Waking from deep sleep partially resets the chip, so the edge
+ * interrupts that make GPIO wake work have to be put back afterwards.
+ */
+void buttons_rearm(void);
+
+/*
  * Advance debounce and gesture state. `now` is a free-running millisecond
  * counter. Safe to call with gaps (it works off absolute timestamps, not
  * call counts), so a skipped tick during a BLE burst costs nothing.

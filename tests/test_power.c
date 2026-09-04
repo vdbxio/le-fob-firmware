@@ -34,8 +34,11 @@ unsigned g_systick_ctlr_at_sleep;
 static SysTick_Type systick_storage;
 SysTick_Type *SysTick = &systick_storage;
 
-/* power.c calls these on wake; not under test here. */
+/* power.c calls these on wake; not under test here beyond being called. */
 void ble_adv_resume(void) {}
+
+int g_rearm_calls;
+void buttons_rearm(void) { g_rearm_calls++; }
 
 /* Defined in power.c; declared here because it is an interrupt handler and
  * so has no place in a public header. */
@@ -55,24 +58,32 @@ int main(void)
 	printf("\n== GPIO wake arming ==\n");
 
 	R8_SLP_WAKE_CTRL  = 0;
-	R8_SLP_POWER_CTRL = 0xFF; /* start dirty, so clearing is visible */
+	R8_SLP_POWER_CTRL = 0;
 
 	power_arm_gpio_wake();
 
 	check(R8_SLP_WAKE_CTRL & RB_SLP_GPIO_WAKE, "GPIO is enabled as a wake source");
 
 	/*
-	 * The bit whose absence cost a debugging round. A button edge is a
-	 * short pulse; with this clear the wake logic waits for an event that
-	 * stays valid, and the edge is never seen.
+	 * These two must be left alone, and an earlier version that set them
+	 * produced a fob that woke once or twice and then never again.
+	 *
+	 * RB_WAKE_EV_MODE enables an event memory for short pulses. A button
+	 * here is active low and held, so the event remains valid until wake
+	 * on its own -- which is the mode the reset value selects. Setting the
+	 * bit adds a latch nothing ever clears.
+	 *
+	 * RB_GPIO_WAKE_MODE selects edge over level; level is right for a held
+	 * button and is also the reset value.
 	 */
-	check(R8_SLP_WAKE_CTRL & RB_WAKE_EV_MODE,
-	      "wake events are treated as short pulses");
+	check(!(R8_SLP_WAKE_CTRL & RB_WAKE_EV_MODE),
+	      "event memory left disabled -- a held button stays valid");
+	check(!(R8_SLP_WAKE_CTRL & 0x80),
+	      "wake stays level-triggered, not edge");
 
-	/* WCH's default: 01, short delay, 520 cycles + TSUHSE. Anything else
-	 * either wakes too slowly or before the HSE has restarted. */
-	check((R8_SLP_POWER_CTRL & RB_WAKE_DLY_MOD) == 0x01,
-	      "wake delay is the short-but-safe setting");
+	/* Reset value, the longest delay, giving the HSE the most time. */
+	check((R8_SLP_POWER_CTRL & RB_WAKE_DLY_MOD) == 0x00,
+	      "wake delay left at the longest, safest setting");
 
 	printf("\n== sleep power plan ==\n");
 
@@ -104,6 +115,20 @@ int main(void)
 	      "SysTick interrupt is restored after waking");
 	check(systick_storage.CMP > systick_storage.CNT,
 	      "next tick is scheduled ahead of the counter");
+
+	printf("\n== the wake path is re-armed after sleeping ==\n");
+
+	/*
+	 * Waking generates a partial reset, so anything configured before
+	 * sleeping has to be put back. Missing this looks like a fob that
+	 * wakes once or twice and then stops.
+	 */
+	R8_SLP_WAKE_CTRL = 0;
+	g_rearm_calls    = 0;
+	power_sleep();
+	check(R8_SLP_WAKE_CTRL & RB_SLP_GPIO_WAKE,
+	      "GPIO wake re-armed on the way out of sleep");
+	check(g_rearm_calls == 1, "button interrupts re-armed too");
 
 	printf("\n== RTC handler clears its flag ==\n");
 

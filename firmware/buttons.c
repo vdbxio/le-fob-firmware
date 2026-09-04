@@ -272,7 +272,12 @@ void GPIOB_IRQHandler(void)
 	g_wake_flag   = 1;
 }
 
-void buttons_init(void)
+/*
+ * Apply the edge-interrupt configuration for all four pads. Split out of
+ * buttons_init() because it has to be repeated after every wake: sleep
+ * partially resets the chip, and these registers do not survive it.
+ */
+void buttons_rearm(void)
 {
 	/*
 	 * Route interrupt lines INT24/INT25 to the PB22/PB23 pads. Without
@@ -283,8 +288,6 @@ void buttons_init(void)
 
 	for (int i = 0; i < NUM_BUTTONS; i++) {
 		const btn_hw_t *hw = &btn_hw[i];
-
-		funPinMode(hw->pin, GPIO_CFGLR_IN_PUPD);
 
 		if (hw->is_pb) {
 			R16_PB_INT_MODE |= hw->int_bit;  /* edge, not level */
@@ -299,20 +302,21 @@ void buttons_init(void)
 		}
 	}
 
+	NVIC_EnableIRQ(GPIOA_IRQn);
+	NVIC_EnableIRQ(GPIOB_IRQn);
+}
+
+void buttons_init(void)
+{
+	for (int i = 0; i < NUM_BUTTONS; i++)
+		funPinMode(btn_hw[i].pin, GPIO_CFGLR_IN_PUPD);
+
+	buttons_rearm();
+
 	/* Seed the debounced state from the real pin levels, so a button held
 	 * across reset is not reported as a fresh press. */
 	for (int i = 0; i < NUM_BUTTONS; i++) {
 		btn[i].raw   = (uint8_t)btn_raw_pressed(&btn_hw[i]);
 		btn[i].level = btn[i].raw;
 	}
-
-	/*
-	 * Arming GPIO as a wake source lives in power.c (arm_gpio_wake), not
-	 * here. It needs more than the RB_SLP_GPIO_WAKE bit -- an event mode
-	 * and a wake delay as well -- and having two files each set part of it
-	 * is how the incomplete version survived. The interrupts enabled below
-	 * are what that wake source actually listens to.
-	 */
-	NVIC_EnableIRQ(GPIOA_IRQn);
-	NVIC_EnableIRQ(GPIOB_IRQn);
 }

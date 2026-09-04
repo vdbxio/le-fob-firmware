@@ -3,6 +3,7 @@
 #include "power.h"
 #include "ble_adv.h"
 #include "led_anim.h"
+#include "buttons.h"
 
 #include "ch5xx_lowpower.h"
 
@@ -72,36 +73,38 @@ static void quiesce_unused_pins(void)
 }
 
 /*
- * Arm GPIO as a wake source, the way WCH's PWR_PeriphWakeUpCfg() does.
+ * Arm GPIO as a wake source.
  *
- * Setting RB_SLP_GPIO_WAKE alone is not enough, and that was the fault: the
- * chip slept beautifully and nothing could wake it.
+ * Only RB_SLP_GPIO_WAKE. The two neighbouring bits are deliberately left at
+ * their reset values, and an earlier version that set them was wrong:
  *
- * RB_WAKE_EV_MODE selects how the wake event is interpreted -- 0 means the
- * event must stay valid for a long time, 1 means a short pulse is accepted.
- * A button edge is a short pulse. Without this bit the edge is simply not
- * seen, and the only way out is a reset.
+ *   RB_GPIO_WAKE_MODE (bit 7) selects edge or level. Reset is 0, level
+ *   triggered, which is what these buttons want -- they are active low with
+ *   pull-ups, so a press pulls the pin low and holds it there. The event is
+ *   a level, not an edge.
  *
- * RB_WAKE_DLY_MOD sets how long the chip waits for clocks to come back
- * before running code. 01 is WCH's own default: "short time, 520 cycles +
- * TSUHSE", which allows the 32 MHz crystal to restart. Leaving it at 00
- * costs 3590 cycles of wake latency for no benefit here; the faster
- * settings risk running before the HSE is stable.
+ *   RB_WAKE_EV_MODE (bit 6) is described by the datasheet as "wake-up event
+ *   internal memory mode enable: 1: enable memory, support short-pulse event
+ *   wake-up; 0: disable memory, the event should remain valid until wake
+ *   up." A held button *is* an event that remains valid until wake, so the
+ *   reset value of 0 is correct. Setting it enables a latch this firmware
+ *   never clears, and a latch that is never cleared stops working after it
+ *   has latched.
  *
- * Each write gets its own safe-access unlock, as WCH does -- the unlock
- * window is only a few cycles wide, and stacking writes into one can miss
- * it.
+ * The wake delay (RB_WAKE_DLY_MOD) is likewise left at reset, 00, the
+ * longest setting at 3590 cycles + TSUHSE. Shortening it wakes sooner but
+ * gives the 32 MHz crystal less time to restart, and for a fob that wakes on
+ * a human finger the latency is worth nothing and the margin is worth
+ * having.
+ *
+ * WCH's PWR_PeriphWakeUpCfg() sets both bits, which is what led to setting
+ * them here. It is a general-purpose helper covering wake sources that are
+ * genuinely pulses; for a level-held button it is the wrong shape.
  */
 void power_arm_gpio_wake(void)
 {
 	SYS_SAFE_ACCESS(
-		R8_SLP_WAKE_CTRL |= RB_WAKE_EV_MODE | RB_SLP_GPIO_WAKE;
-	);
-	SYS_SAFE_ACCESS(
-		R8_SLP_POWER_CTRL &= ~RB_WAKE_DLY_MOD;
-	);
-	SYS_SAFE_ACCESS(
-		R8_SLP_POWER_CTRL |= 0x01; /* short delay, 520 cycles + TSUHSE */
+		R8_SLP_WAKE_CTRL |= RB_SLP_GPIO_WAKE;
 	);
 }
 
@@ -198,6 +201,19 @@ void power_sleep(void)
 	 */
 	LowPowerSleepWFI(RB_PWR_RAM2K | RB_PWR_RAMX | RB_PWR_EXTEND |
 	                 RB_PWR_MUST_0010);
+
+	/*
+	 * Waking from sleep generates a partial reset -- the datasheet is
+	 * explicit that it is "a selective reset of the registers that are
+	 * powered down in sleep mode". Anything configured before sleeping has
+	 * to be assumed gone, so the wake source and the button interrupts it
+	 * listens to are re-armed on every wake rather than only at boot.
+	 *
+	 * Getting this wrong looks like a fob that wakes once or twice and
+	 * then never again.
+	 */
+	power_arm_gpio_wake();
+	buttons_rearm();
 
 	/* The DC-DC is switched off across sleep and the radio comes back in
 	 * an undefined state; both have to be re-established before use. */
