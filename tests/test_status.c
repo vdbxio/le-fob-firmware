@@ -22,6 +22,7 @@ uint8_t g_fake_rom[6];
 /* status_text() is not under test; these satisfy the link only. */
 int charger_present(void) { return 0; }
 int charger_read(charger_status_t *s) { (void)s; return 0; }
+charger_result_t charger_result(void) { return CHARGER_NO_ACK; }
 
 static int failures;
 static void check(int c, const char *w)
@@ -47,11 +48,25 @@ int main(void)
 {
 	charger_status_t s;
 
-	printf("\n== without a charger ==\n");
+	printf("\n== without a charger: say why ==\n");
+	{
+		char b[32];
+		status_format_absent(b, sizeof b, 0, CHARGER_NO_ACK);
+		check(!strcmp(b, "chgr off") && strlen(b) <= BTHOME_STATUS_TEXT_MAX,
+		      "driver compiled out -> 'chgr off'");
+		status_format_absent(b, sizeof b, 1, CHARGER_NO_ACK);
+		check(!strcmp(b, "chgr nak") && strlen(b) <= BTHOME_STATUS_TEXT_MAX,
+		      "driver on, no ACK -> 'chgr nak' (bus / pull-ups)");
+		status_format_absent(b, sizeof b, 1, CHARGER_BAD_ID);
+		check(!strcmp(b, "chgr id?") && strlen(b) <= BTHOME_STATUS_TEXT_MAX,
+		      "driver on, wrong chip id -> 'chgr id?'");
+		status_format_absent(b, sizeof b, 1, CHARGER_CFG_FAILED);
+		check(!strcmp(b, "chgr cfg!") && strlen(b) <= BTHOME_STATUS_TEXT_MAX,
+		      "driver on, config did not verify -> 'chgr cfg!'");
+	}
 	memset(&s, 0, sizeof s);
-	expect("driver off / part absent", 0, &s, "no chgr");
 	s.valid = 0;
-	expect("present but read failed", 1, &s, "no chgr");
+	expect("present but status read failed", 1, &s, "chgr read!");
 
 	printf("\n== power source and charge state ==\n");
 	memset(&s, 0, sizeof s); s.valid = 1;

@@ -20,4 +20,8 @@ const char *status_text(void);
  */
 void status_format(char *buf, size_t n, int present, const charger_status_t *s);
 
+/* As above, but for the not-present case: says *why*. */
+void status_format_absent(char *buf, size_t n, int driver_enabled,
+                          charger_result_t why);
+
 #endif /* LE_FOB_STATUS_H */

@@ -47,6 +47,20 @@ int charger_init(void);
 /* Did charger_init() find the part? */
 int charger_present(void);
 
+/*
+ * Why charger_init() did not find it, for the status text. With no console
+ * on a board that has had its debug module disabled, this is the only way
+ * an I2C problem can be told apart from a missing part.
+ */
+typedef enum {
+	CHARGER_OK = 0,
+	CHARGER_NO_ACK,     /* nothing answered at the address: bus or pull-ups */
+	CHARGER_BAD_ID,     /* something answered, but not an AW32001 */
+	CHARGER_CFG_FAILED, /* found, but configuration did not verify */
+} charger_result_t;
+
+charger_result_t charger_result(void);
+
 /* Read status and faults. Returns 1 on success. */
 int charger_read(charger_status_t *out);
 

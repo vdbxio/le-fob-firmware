@@ -70,18 +70,21 @@ int main(void)
 
 	device_reset();
 	check(charger_init() == 1, "finds the part when the chip ID matches");
+	check(charger_result() == CHARGER_OK, "and reports OK");
 	check(charger_present(), "reports present afterwards");
 	check(i2c_fake_init_khz == CHARGER_I2C_KHZ, "bus opened at the configured rate");
 
 	device_reset();
 	i2c_fake_reg[0x0A] = 0x12; /* wrong ID */
 	check(charger_init() == 0, "rejects a part with the wrong chip ID");
+	check(charger_result() == CHARGER_BAD_ID, "and says so: BAD_ID");
 	check(!charger_present(), "and does not claim to be present");
 	check(i2c_fake_log_len == 0, "writes nothing to an unidentified device");
 
 	device_reset();
 	i2c_fake_present = 0;
 	check(charger_init() == 0, "survives a bus with nothing on it");
+	check(charger_result() == CHARGER_NO_ACK, "and says so: NO_ACK");
 
 	printf("\n== the watchdog must end up off ==\n");
 
@@ -150,6 +153,7 @@ int main(void)
 	int r = charger_init();
 	check(r == 0, "init fails rather than proceeding on unverifiable reads");
 	check(!charger_present(), "and does not report the charger as present");
+	check(charger_result() == CHARGER_CFG_FAILED, "and says so: CFG_FAILED");
 	check((i2c_fake_reg[0x06] & 0x20) == 0,
 	      "FET_DIS still clear -- a corrupt read never becomes a corrupt write");
 

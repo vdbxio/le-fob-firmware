@@ -14,13 +14,27 @@ static void put(char *buf, size_t n, const char *s)
 	buf[i] = 0;
 }
 
+void status_format_absent(char *buf, size_t n, int driver_enabled,
+                          charger_result_t why)
+{
+	if (!driver_enabled) {
+		put(buf, n, "chgr off");   /* compiled out: not a fault */
+		return;
+	}
+	switch (why) {
+	case CHARGER_NO_ACK:     put(buf, n, "chgr nak");  break; /* bus / pull-ups */
+	case CHARGER_BAD_ID:     put(buf, n, "chgr id?");  break; /* wrong part */
+	case CHARGER_CFG_FAILED: put(buf, n, "chgr cfg!"); break; /* writes did not verify */
+	default:                 put(buf, n, "chgr ?");    break;
+	}
+}
+
 void status_format(char *buf, size_t n, int present, const charger_status_t *s)
 {
 	if (!present || !s->valid) {
-		/* Either the driver is compiled out or the part is not on the
-		 * bus. Both are "we cannot see the charger", and that is more
-		 * useful to say than a guess about the power source. */
-		put(buf, n, "no chgr");
+		/* Caller should prefer status_format_absent() to say why; this
+		 * is the fallback when a present part fails a status read. */
+		put(buf, n, "chgr read!");
 		return;
 	}
 
@@ -50,8 +64,13 @@ const char *status_text(void)
 {
 	static char buf[BTHOME_STATUS_TEXT_MAX + 1];
 	charger_status_t s = { 0 };
-	int present = charger_present() && charger_read(&s);
 
-	status_format(buf, sizeof(buf), present, &s);
+	if (!FOB_ENABLE_CHARGER || !charger_present()) {
+		status_format_absent(buf, sizeof(buf), FOB_ENABLE_CHARGER,
+		                     charger_result());
+		return buf;
+	}
+
+	status_format(buf, sizeof(buf), charger_read(&s), &s);
 	return buf;
 }

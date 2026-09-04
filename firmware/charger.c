@@ -35,6 +35,9 @@
 #define AW_THERM_STAT     0x01  /* B0 */
 
 static uint8_t present;
+static charger_result_t result = CHARGER_NO_ACK;
+
+charger_result_t charger_result(void) { return result; }
 
 /* ------------------------------------------------------------------ */
 /* Register access                                                     */
@@ -186,6 +189,8 @@ int charger_init(void)
 	funPinMode(PIN_I2C_SCL, GPIO_CFGLR_IN_PUPD);
 	funPinMode(PIN_I2C_SDA, GPIO_CFGLR_IN_PUPD);
 
+	result = CHARGER_NO_ACK;
+
 	if (i2c_init(CHARGER_I2C_KHZ) != 0)
 		return 0;
 
@@ -199,11 +204,16 @@ int charger_init(void)
 	uint8_t id2;
 
 	if (!reg_read(AW_REG_CHIP_ID, &id, 1) ||
-	    !reg_read(AW_REG_CHIP_ID, &id2, 1) ||
-	    id != id2 || id != AW_CHIP_ID)
+	    !reg_read(AW_REG_CHIP_ID, &id2, 1))
+		return 0;                       /* CHARGER_NO_ACK */
+
+	if (id != id2 || id != AW_CHIP_ID) {
+		result = CHARGER_BAD_ID;
 		return 0;
+	}
 
 	present = 1;
+	result  = CHARGER_OK;
 
 	int ok = 1;
 
@@ -263,6 +273,7 @@ int charger_init(void)
 		 */
 		reg_reset();
 		present = 0;
+		result  = CHARGER_CFG_FAILED;
 		return 0;
 	}
 
