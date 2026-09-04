@@ -40,20 +40,29 @@ static void quiesce_unused_pins(void)
 	funPinMode(PA14, GPIO_CFGLR_OUT_2Mhz_PP);
 	funDigitalWrite(PA14, FUN_LOW);
 
-	/* Castellations and unconnected analog pins: pull up so they are not
-	 * left floating. */
-	funPinMode(PA4,  GPIO_CFGLR_IN_PUPD);   /* charger nIRQ, unused here */
-	funPinMode(PA5,  GPIO_CFGLR_IN_PUPD);
-	funPinMode(PA8,  GPIO_CFGLR_IN_PUPD);
-	funPinMode(PA12, GPIO_CFGLR_IN_PUPD);   /* DISP_RST, OLED is DNP */
-	funPinMode(PA13, GPIO_CFGLR_IN_PUPD);
-	funPinMode(PA15, GPIO_CFGLR_IN_PUPD);
-	funPinMode(PB12, GPIO_CFGLR_IN_PUPD);   /* UART1 RX */
-	funPinMode(PB13, GPIO_CFGLR_IN_PUPD);   /* UART1 TX */
+	/*
+	 * Castellations and unconnected analog pins: pull up so they are not
+	 * left floating.
+	 *
+	 * See FOB_QUIESCE_PULLUPS in board.h for why this is worth being able
+	 * to switch off -- a pull-up into a pin something else holds low costs
+	 * 65-165 uA, and PA4 (the charger's open-drain INT) is the candidate.
+	 */
+	const GPIOModeTypeDef mode = FOB_QUIESCE_PULLUPS ? GPIO_CFGLR_IN_PUPD
+	                                                 : GPIO_CFGLR_IN_FLOAT;
+
+	funPinMode(PA4,  mode);   /* charger nIRQ, unused here */
+	funPinMode(PA5,  mode);
+	funPinMode(PA8,  mode);
+	funPinMode(PA12, mode);   /* DISP_RST, OLED is DNP */
+	funPinMode(PA13, mode);
+	funPinMode(PA15, mode);
+	funPinMode(PB12, mode);   /* UART1 RX */
+	funPinMode(PB13, mode);   /* UART1 TX */
 
 	/* I2C already has board pull-ups; match them rather than float. */
-	funPinMode(PB14, GPIO_CFGLR_IN_PUPD);
-	funPinMode(PB15, GPIO_CFGLR_IN_PUPD);
+	funPinMode(PB14, mode);
+	funPinMode(PB15, mode);
 }
 
 /*

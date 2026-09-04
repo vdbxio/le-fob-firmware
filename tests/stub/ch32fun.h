@@ -47,7 +47,7 @@ extern uint8_t  R8_SLP_WAKE_CTRL;
 
 #define SYS_SAFE_ACCESS(a) do { a } while (0)
 
-typedef enum { GPIO_CFGLR_IN_PUPD } GPIOModeTypeDef;
+typedef enum { GPIO_CFGLR_IN_PUPD, GPIO_CFGLR_IN_FLOAT } GPIOModeTypeDef;
 #define funPinMode(pin, mode) ((void)(pin), (void)(mode))
 
 typedef enum { GPIOA_IRQn, GPIOB_IRQn } IRQn_Type;

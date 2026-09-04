@@ -208,6 +208,27 @@
 #define FOB_DISABLE_RADIO 0
 #endif
 
+/*
+ * Build without the internal pull-ups that power.c puts on otherwise-unused
+ * pins:
+ *
+ *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude \
+ *         -DFOB_SLEEP_ENABLE=1 -DFOB_QUIESCE_PULLUPS=0"
+ *
+ * A pull-up is the right thing for an input that would otherwise float, but
+ * it is exactly the wrong thing for one that something else holds low: the
+ * CH592's internal pull-up is in the tens of kilohms, so it would source
+ * 65-165 uA continuously. PA4 is the one to suspect -- it is the AW32001's
+ * INT, which is open-drain and low while asserted.
+ *
+ * Building with this at 0 leaves those pins floating, which is not a state
+ * to ship, but it separates "my pull-ups are sourcing current" from "the
+ * board draws this regardless" in one measurement.
+ */
+#ifndef FOB_QUIESCE_PULLUPS
+#define FOB_QUIESCE_PULLUPS 1
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Sleep                                                              */
 /* ------------------------------------------------------------------ */
