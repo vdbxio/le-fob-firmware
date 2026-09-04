@@ -299,6 +299,11 @@ int led_anim_busy(void)
 	return 0;
 }
 
+void led_anim_invalidate(void)
+{
+	primed = 0;
+}
+
 void led_anim_all_off(void)
 {
 	for (int i = 0; i < WS2812_COUNT; i++)

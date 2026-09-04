@@ -288,6 +288,16 @@
 
 /* Stay awake this long after the last interesting thing happened, so a
  * user mid-gesture is never cut off (ms). */
+/*
+ * Settling time after waking, before any timing-critical work. WCH uses
+ * 20 us in their own sleep routine; this is deliberately generous, because
+ * it is paid once per wake and the failure it prevents is silent corruption
+ * of both the LED waveform and the radio.
+ */
+#ifndef FOB_WAKE_SETTLE_US
+#define FOB_WAKE_SETTLE_US 250
+#endif
+
 #ifndef FOB_IDLE_LINGER_MS
 #define FOB_IDLE_LINGER_MS 400
 #endif

@@ -219,6 +219,25 @@ void power_sleep(void)
 	SysTick->CMP  = SysTick->CNT + (FUNCONF_SYSTEM_CORE_CLOCK / 1000);
 
 	/*
+	 * Let the clock settle before doing anything whose correctness depends
+	 * on its rate.
+	 *
+	 * WCH's own LowPower_Sleep() ends with a DelayUs(20) after restoring
+	 * R8_PLL_CONFIG; ch32fun's LowPowerSleepWFI() has no equivalent wait.
+	 * Returning from it and immediately bit-banging WS2812 data or bringing
+	 * the radio back means doing precisely-timed work on a clock that may
+	 * not have relocked -- and at, say, 32 MHz instead of 60, a 17-cycle
+	 * T0H becomes 531 ns against a 380 ns limit, so every 0 bit is misread.
+	 * That presents as pixels stuck on with colours nobody asked for, and
+	 * as a radio the receiver struggles with.
+	 *
+	 * The wait is expressed in microseconds via SysTick, which is already
+	 * running by this point. If the clock is still slow the delay is longer
+	 * in real time rather than shorter, which is the safe direction.
+	 */
+	Delay_Us(FOB_WAKE_SETTLE_US);
+
+	/*
 	 * Then put back everything else the partial reset may have taken. The
 	 * datasheet does not enumerate what survives, so this restores all of
 	 * it rather than reasoning about each: a few microseconds against a
@@ -230,6 +249,7 @@ void power_sleep(void)
 	buttons_rearm();           /* pad modes and their edge interrupts    */
 	ws2812_resume();           /* PB7 back to an output; no delay needed,
 	                            * the line has been low all sleep        */
+	led_anim_invalidate();     /* redraw rather than trust the shadow    */
 	power_arm_gpio_wake();
 
 	if (!FOB_DISABLE_RADIO)

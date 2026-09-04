@@ -87,6 +87,9 @@ extern unsigned short R16_RTC_CNT_DIV1;
 #define SYSTICK_CTLR_STE  (1 << 0)
 #define SYSTICK_CTLR_STCLK (1 << 2)
 #define FUNCONF_SYSTEM_CORE_CLOCK 60000000
+#define DELAY_US_TIME (FUNCONF_SYSTEM_CORE_CLOCK/1000000)
+#define Delay_Us(n) DelaySysTick((n) * DELAY_US_TIME)
+void DelaySysTick(unsigned n);
 
 typedef struct { unsigned CTLR, SR; unsigned long long CNT, CMP; } SysTick_Type;
 extern SysTick_Type *SysTick;

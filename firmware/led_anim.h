@@ -46,4 +46,16 @@ int led_anim_busy(void);
 /* Blank the chain immediately (used before sleeping). */
 void led_anim_all_off(void);
 
+/*
+ * Forget what the chain is believed to be showing, so the next tick writes
+ * it again unconditionally.
+ *
+ * Needed after waking: the frame-skipping optimisation assumes the chain
+ * still holds what was last sent, and that assumption does not survive a
+ * sleep. Without this, a frame that landed while the clock was still
+ * settling would stay on screen until something else happened to change the
+ * picture.
+ */
+void led_anim_invalidate(void);
+
 #endif /* LE_FOB_LED_ANIM_H */

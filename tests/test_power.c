@@ -50,6 +50,13 @@ void ws2812_resume(void)
 }
 void ws2812_show(const unsigned char *grb, int n) { (void)grb; (void)n; }
 
+int g_invalidate_calls;
+void led_anim_invalidate(void) { g_invalidate_calls++; }
+
+/* Delay_Us on the host: record that it was called, and how long for. */
+unsigned g_settle_us;
+void DelaySysTick(unsigned n) { g_settle_us = n; }
+
 /* Defined in power.c; declared here because it is an interrupt handler and
  * so has no place in a public header. */
 void RTC_IRQHandler(void);
@@ -136,6 +143,8 @@ int main(void)
 	R8_SLP_WAKE_CTRL    = 0;
 	g_rearm_calls       = 0;
 	g_ws2812_resume_calls = 0;
+	g_invalidate_calls    = 0;
+	g_settle_us           = 0;
 	R8_SLP_POWER_CTRL   = 0;
 	power_sleep();
 
@@ -154,6 +163,21 @@ int main(void)
 	 */
 	check(g_systick_ctlr_at_resume & SYSTICK_CTLR_STE,
 	      "SysTick counter already running when the restore begins");
+
+	/*
+	 * A settling wait before any timing-critical work. Without it, WS2812
+	 * bit-banging and the radio both run on a clock that may not have
+	 * relocked -- at 32 MHz rather than 60, a 17-cycle T0H is 531 ns
+	 * against a 380 ns limit and every 0 bit is misread.
+	 */
+	check(g_settle_us > 0, "clock allowed to settle before the restore");
+
+	/*
+	 * And the LED shadow is dropped, so a frame that landed while the
+	 * clock was still settling cannot persist behind the skip-unchanged
+	 * optimisation.
+	 */
+	check(g_invalidate_calls == 1, "LED shadow invalidated so the next tick redraws");
 
 	printf("\n== RTC handler clears its flag ==\n");
 
