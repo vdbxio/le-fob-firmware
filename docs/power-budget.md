@@ -15,6 +15,26 @@ resistor removed, charger driver off. Ten button events over the capture.
 Both of the numbers that matter are now measured rather than predicted:
 the floor *after* activity, and the cost of a press.
 
+### Chirp cost, measured 2026-09-04
+
+396 s capture with the 60 s chirp running: **4 chirps, each ~100 ms awake
+and ~0.13 µAh** — roughly fifteen times cheaper than a press, since there
+is no LED animation and only four burst rounds. Floor between events
+28.5 µA.
+
+| chirp interval | µAh/day for chirps | days |
+|---|---|---|
+| 30 s | 372 | 163 |
+| 60 s | 186 | 138 |
+| 5 min | 37 | 166 |
+| 15 min | 12 | 172 |
+| never | 0 | 175 |
+
+(Floor alone is 684 µAh/day.) So a 60 s chirp costs about a fifth of the
+lifetime and 5 min costs five percent. The interval is a product decision
+about how stale a status may be, not a battery one — the earlier estimate
+treating a chirp like a press overstated it by an order of magnitude.
+
 ### Projected life, 120 mAh cell
 
 | presses / day | days |

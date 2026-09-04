@@ -22,6 +22,7 @@
 
 #define BTHOME_OBJ_PACKET_ID 0x00
 #define BTHOME_OBJ_BUTTON    0x3A
+#define BTHOME_OBJ_TEXT      0x53  /* [id][len][utf-8...] */
 
 /* WCH's assigned OUI, used to work out which way round the factory address
  * is stored. */
@@ -125,6 +126,56 @@ int bthome_build_adv(uint8_t *out, uint8_t pdu_header, const uint8_t mac[6],
 
 	out[n++] = (uint8_t)(namelen + 1);
 	out[n++] = 0x09; /* Complete Local Name */
+	for (int i = 0; i < namelen; i++)
+		out[n++] = (uint8_t)name[i];
+
+	return n;
+}
+
+int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
+                            const uint8_t mac[6], uint8_t packet_id,
+                            const char *text)
+{
+	int n = 0;
+
+	out[n++] = pdu_header;
+	out[n++] = 0; /* filled in by iSLERTX() */
+	for (int i = 0; i < 6; i++)
+		out[n++] = mac[i];
+
+	out[n++] = 0x02;
+	out[n++] = 0x01;
+	out[n++] = 0x06;
+
+	int len_at = n++;
+	out[n++] = 0x16;
+	out[n++] = BTHOME_UUID_LO;
+	out[n++] = BTHOME_UUID_HI;
+	out[n++] = BTHOME_DEVICE_INFO;
+
+	/* Ascending object ids: 0x00 before 0x53. No 0x3A objects here -- a
+	 * button reporting "none" tells the receiver nothing, and the bytes
+	 * are the whole text budget. */
+	out[n++] = BTHOME_OBJ_PACKET_ID;
+	out[n++] = packet_id;
+
+	int tlen = (int)strlen(text);
+
+	if (tlen > BTHOME_STATUS_TEXT_MAX)
+		tlen = BTHOME_STATUS_TEXT_MAX;
+
+	out[n++] = BTHOME_OBJ_TEXT;
+	out[n++] = (uint8_t)tlen;
+	for (int i = 0; i < tlen; i++)
+		out[n++] = (uint8_t)text[i];
+
+	out[len_at] = (uint8_t)(n - len_at - 1);
+
+	const char *name    = BTHOME_NAME;
+	int         namelen = (int)strlen(name);
+
+	out[n++] = (uint8_t)(namelen + 1);
+	out[n++] = 0x09;
 	for (int i = 0; i < namelen; i++)
 		out[n++] = (uint8_t)name[i];
 

@@ -31,13 +31,17 @@ test_charger : test_charger.c ../firmware/charger.c
 test_chirp : test_chirp.c ../firmware/chirp.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-run : test_bthome test_buttons test_leds test_power test_charger test_chirp
+test_status : test_status.c ../firmware/status.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status
 	./test_bthome
 	./test_buttons
 	./test_leds
 	./test_power
 	./test_charger
 	./test_chirp
+	./test_status
 
 clean :
-	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp *.dSYM
+	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status *.dSYM

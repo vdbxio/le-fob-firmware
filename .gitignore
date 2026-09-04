@@ -26,3 +26,4 @@
 /tests/test_power
 /tests/test_charger
 /tests/test_chirp
+/tests/test_status

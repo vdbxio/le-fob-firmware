@@ -236,17 +236,21 @@
 /*
  * How often the fob wakes on its own to advertise, with no button pressed.
  *
- * This is the single largest lever on battery life now that the idle floor
- * is ~36 uA. A chirp is a wake plus a burst, roughly the cost of one button
- * press (~2 uAh), so at the measured floor on the 120 mAh cell:
+ * Measured 2026-09-04: a chirp is ~100 ms awake and ~0.13 uAh -- about
+ * fifteen times cheaper than a button press, because there is no LED
+ * animation and only four burst rounds. Against a 28.5 uA floor on the
+ * 120 mAh cell:
  *
- *      interval   chirps/day   days
- *        30 s        2880        20
- *        60 s        1440        36
- *         5 min       288        95
- *        15 min        96       124
- *        30 min        48       132
- *        never          0       139
+ *      interval   chirps/day   uAh/day   days
+ *        30 s        2880        372      163   (floor alone is 684)
+ *        60 s        1440        186      138
+ *         5 min       288         37      166
+ *        15 min        96         12      172
+ *        never          0          0      175
+ *
+ * So even a 60 s chirp costs a fifth of the lifetime, and 5 min costs
+ * five percent. The interval is a product choice about how stale a
+ * status may be, not a battery one.
  *
  * The intended production value is 5 minutes: Home Assistant's "last seen"
  * stays fresh enough to trust, at ~two thirds of the no-chirp lifetime.

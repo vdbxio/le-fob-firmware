@@ -18,11 +18,11 @@ void ble_adv_init(void);
 void ble_adv_send_event(uint8_t button, uint8_t event);
 
 /*
- * Queue a status chirp: the same frame with every button reporting "none",
- * a fresh packet ID, and a shorter burst. Its job is to refresh the
- * receiver's "last seen"; later it will carry charge state too.
+ * Queue a status chirp: packet id plus a BTHome text object carrying
+ * `status_text`, no button objects, a shorter burst. Refreshes the
+ * receiver's "last seen" and shows it a line a human can read.
  */
-void ble_adv_send_heartbeat(void);
+void ble_adv_send_heartbeat(const char *status_text);
 
 /* Drive the burst. Transmits at most one round (three channels) per call
  * and only when ADV_ROUND_INTERVAL_MS has elapsed. */

@@ -54,15 +54,15 @@ static void start_burst(const uint8_t events[NUM_BUTTONS], uint8_t rounds)
 	t_last_round = 0; /* forces the first round on the next tick */
 }
 
-void ble_adv_send_heartbeat(void)
+void ble_adv_send_heartbeat(const char *status_text)
 {
-	uint8_t events[NUM_BUTTONS];
-
-	for (int i = 0; i < NUM_BUTTONS; i++)
-		events[i] = BTHOME_EVT_NONE;
-
 	tx_button = -1; /* no pad to light: nothing was pressed */
-	start_burst(events, ADV_HEARTBEAT_ROUNDS);
+
+	packet_id++;
+	adv_len = bthome_build_status_adv(adv_buf, pdu_header, mac, packet_id,
+	                                  status_text);
+	rounds_left  = ADV_HEARTBEAT_ROUNDS;
+	t_last_round = 0;
 }
 
 void ble_adv_send_event(uint8_t button, uint8_t event)

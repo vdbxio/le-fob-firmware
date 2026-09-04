@@ -32,6 +32,7 @@
 #include "power.h"
 #include "charger.h"
 #include "chirp.h"
+#include "status.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
  * SysTick ISR. */
@@ -219,7 +220,7 @@ int main(void)
 
 			if (send) {
 				if (!FOB_DISABLE_RADIO)
-					ble_adv_send_heartbeat();
+					ble_adv_send_heartbeat(status_text());
 				/* An interim chirp counts: restart the schedule. */
 				chirp_mark_sent(rtc);
 			}

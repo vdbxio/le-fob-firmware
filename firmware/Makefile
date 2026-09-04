@@ -10,6 +10,7 @@ ADDITIONAL_C_FILES := \
 	power.c \
 	charger.c \
 	chirp.c \
+	status.c \
 	libc_shim.c
 
 CH32FUN := ../ch32fun/ch32fun
