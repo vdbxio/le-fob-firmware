@@ -17,6 +17,8 @@
 #define PB4  (0x80000010)
 #define PB12 (0x80001000)
 #define PB13 (0x80002000)
+#define PB14 (0x80004000)
+#define PB15 (0x80008000)
 #define PB6  (0x80000040)
 #define PB7  (0x80000080)
 #define PB14 (0x80004000)

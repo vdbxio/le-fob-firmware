@@ -134,6 +134,21 @@
 #endif
 
 /* ------------------------------------------------------------------ */
+/* AW32001 battery charger, on the shared I2C bus                     */
+/* ------------------------------------------------------------------ */
+#define PIN_I2C_SDA PB14   /* pad 12 */
+#define PIN_I2C_SCL PB15   /* pad 11 */
+#define PIN_CHG_INT PA4    /* pad 26, charger INT (open drain, active low) */
+
+#define CHARGER_I2C_ADDR 0x49
+
+/* The board fits pull-ups (R3/R4); 100 kHz is comfortable. Drop this if
+ * running on internal pull-ups instead -- see docs/i2c-pullups.md. */
+#ifndef CHARGER_I2C_KHZ
+#define CHARGER_I2C_KHZ 100
+#endif
+
+/* ------------------------------------------------------------------ */
 /* Factory info block                                                 */
 /* ------------------------------------------------------------------ */
 /*

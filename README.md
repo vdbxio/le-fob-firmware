@@ -394,6 +394,8 @@ firmware/
   led_anim.c/h   per-pixel layering: gesture, on-air, press
   bthome.c/h     BTHome v2 packet builder
   ble_adv.c/h    iSLER advertising bursts
+  power.c/h      DC-DC, RTC timebase, pin quiescing, deep sleep
+  charger.c/h    AW32001 over I2C: status, and two corrected defaults
   libc_shim.c    one strong memset; see the file for why
   include/       freestanding libc headers for Homebrew's GCC
 tests/           host-side packet tests

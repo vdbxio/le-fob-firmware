@@ -8,6 +8,7 @@ ADDITIONAL_C_FILES := \
 	bthome.c \
 	ble_adv.c \
 	power.c \
+	charger.c \
 	libc_shim.c
 
 CH32FUN := ../ch32fun/ch32fun
@@ -18,6 +19,10 @@ MINICHLINK := ../ch32fun/minichlink
 # and include/ declares the handful of string/stdio functions that ch32fun
 # already implements itself. See include/README.md.
 EXTRA_CFLAGS += -ffreestanding -Iinclude
+
+# lib_i2c_ch5xx.h is header-only and lives with its example in the vendored
+# ch32fun tree rather than in extralibs, so it needs its own include path.
+EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
 
 all : $(TARGET).bin
 

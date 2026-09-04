@@ -30,6 +30,7 @@
 #include "led_anim.h"
 #include "ble_adv.h"
 #include "power.h"
+#include "charger.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
  * SysTick ISR. */
@@ -82,6 +83,22 @@ static void banner(void)
 	printf("pads   SW1 PB22 | SW2 PB4 | SW3 PB23 | SW4 PA9\n");
 	printf("pixels %d on PB7 (PIXEL0)\n", WS2812_COUNT);
 
+	if (charger_present()) {
+		charger_status_t chg;
+
+		if (charger_read(&chg))
+			printf("chgr   AW32001 @0x%02X: %s, VBUS %s%s\n",
+			       CHARGER_I2C_ADDR, charger_state_name(chg.state),
+			       chg.power_good ? "present" : "absent",
+			       chg.faults ? ", FAULTS" : "");
+		else
+			printf("chgr   AW32001 @0x%02X found, status read failed\n",
+			       CHARGER_I2C_ADDR);
+	} else {
+		printf("chgr   not responding at 0x%02X (bus pull-ups?)\n",
+		       CHARGER_I2C_ADDR);
+	}
+
 	if (FOB_DISABLE_RADIO)
 		printf("RADIO  DISABLED (FOB_DISABLE_RADIO=1) - LED diagnostic build\n");
 
@@ -114,6 +131,8 @@ int main(void)
 
 	if (!FOB_DISABLE_RADIO)
 		ble_adv_init();
+
+	charger_init();
 
 	banner();
 
