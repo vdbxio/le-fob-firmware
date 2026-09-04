@@ -219,8 +219,21 @@ void power_sleep(void)
 	SysTick->CMP  = SysTick->CNT + (FUNCONF_SYSTEM_CORE_CLOCK / 1000);
 
 	/*
-	 * Let the clock settle before doing anything whose correctness depends
-	 * on its rate.
+	 * Bring the DC-DC back *before* settling, not after.
+	 *
+	 * ch32fun's LowPowerSleepWFI() writes R16_POWER_PLAN from scratch and
+	 * drops RB_PWR_DCDC_EN / RB_PWR_DCDC_PRE, so the core comes out of
+	 * sleep on the LDO and DCDCEnable() switches it back -- a supply
+	 * transition on every wake. (WCH's LowPower_Sleep() preserves those
+	 * bits and never transitions.) That switch is the biggest disturbance
+	 * in the whole wake path, so it goes first and the settling wait
+	 * covers it, rather than the other way round.
+	 */
+	DCDCEnable();
+
+	/*
+	 * Now let the clock and supply settle before doing anything whose
+	 * correctness depends on the clock rate.
 	 *
 	 * WCH's own LowPower_Sleep() ends with a DelayUs(20) after restoring
 	 * R8_PLL_CONFIG; ch32fun's LowPowerSleepWFI() has no equivalent wait.
@@ -228,8 +241,6 @@ void power_sleep(void)
 	 * the radio back means doing precisely-timed work on a clock that may
 	 * not have relocked -- and at, say, 32 MHz instead of 60, a 17-cycle
 	 * T0H becomes 531 ns against a 380 ns limit, so every 0 bit is misread.
-	 * That presents as pixels stuck on with colours nobody asked for, and
-	 * as a radio the receiver struggles with.
 	 *
 	 * The wait is expressed in microseconds via SysTick, which is already
 	 * running by this point. If the clock is still slow the delay is longer
@@ -240,11 +251,8 @@ void power_sleep(void)
 	/*
 	 * Then put back everything else the partial reset may have taken. The
 	 * datasheet does not enumerate what survives, so this restores all of
-	 * it rather than reasoning about each: a few microseconds against a
-	 * class of faults that present as a fob which sleeps perfectly and is
-	 * never right again afterwards.
+	 * it rather than reasoning about each.
 	 */
-	DCDCEnable();              /* switched off across sleep              */
 	power_apply_pin_config();  /* quiescing, FET gates, I2C idle state   */
 	buttons_rearm();           /* pad modes and their edge interrupts    */
 	ws2812_resume();           /* PB7 back to an output; no delay needed,
