@@ -233,13 +233,21 @@
 /* Sleep                                                              */
 /* ------------------------------------------------------------------ */
 /*
- * Off by default: this build is for bring-up, where a chip that drops into
- * deep sleep is harder to talk to. The wake path is fully built either way
- * (buttons.c arms the GPIO edge interrupts and RB_SLP_GPIO_WAKE regardless),
- * so flipping this to 1 is the only change needed to start sleeping.
+ * Deep sleep, on by default.
+ *
+ * It was off through bring-up, on the grounds that a chip which drops into
+ * deep sleep is harder to talk to. It has since been measured working -- a
+ * flat 257 uA floor held for 12.8 s with no wakes -- and the difference it
+ * makes is the difference between a fob that lasts a day and one that lasts
+ * months, so it is now what a plain `make flash` gives you.
+ *
+ * Set to 0 for bring-up work where you would rather the chip stayed awake
+ * and responsive:
+ *
+ *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=0"
  */
 #ifndef FOB_SLEEP_ENABLE
-#define FOB_SLEEP_ENABLE 0
+#define FOB_SLEEP_ENABLE 1
 #endif
 
 /* Stay awake this long after the last interesting thing happened, so a

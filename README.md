@@ -287,12 +287,18 @@ why the driver writes `R32_PB_CLR` to select falling.
 
 ### Sleep
 
-Off by default (`FOB_SLEEP_ENABLE` in `board.h`) — a chip that drops into deep
-sleep is harder to talk to during bring-up. To try it:
+**On by default** — a plain `make flash` gives you the sleeping build. It was
+off through bring-up, but it has been measured working (a flat 257 µA floor
+held for 12.8 s with no wakes) and it is the difference between a fob that
+lasts a day and one that lasts months.
+
+For bring-up work where you would rather the chip stayed awake:
 
 ```bash
-make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=1" && make flash
+make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=0"
 ```
+
+The boot banner states which build is running.
 
 [`power.c`](firmware/power.c) does the setup this needs: the internal DC-DC
 (roughly 60% of the LDO's active current), the LSI for the 32 kHz domain, the

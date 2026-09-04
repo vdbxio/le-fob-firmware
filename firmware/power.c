@@ -60,7 +60,13 @@ static void quiesce_unused_pins(void)
 	funPinMode(PB12, mode);   /* UART1 RX */
 	funPinMode(PB13, mode);   /* UART1 TX */
 
-	/* I2C already has board pull-ups; match them rather than float. */
+	/*
+	 * I2C. On boards where R3/R4 are fitted these internal pull-ups just
+	 * match the board ones; where they are missing, these are the only
+	 * thing holding the bus idle high. The internal pull-up is weak -- IUP
+	 * is 25/60/90 uA at 3.3 V, so 37-132 k -- which is usable for a short
+	 * single-device bus only at a low bit rate. See docs/i2c-pullups.md.
+	 */
 	funPinMode(PB14, mode);
 	funPinMode(PB15, mode);
 }
