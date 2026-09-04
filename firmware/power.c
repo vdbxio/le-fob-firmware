@@ -56,6 +56,40 @@ static void quiesce_unused_pins(void)
 	funPinMode(PB15, GPIO_CFGLR_IN_PUPD);
 }
 
+/*
+ * Arm GPIO as a wake source, the way WCH's PWR_PeriphWakeUpCfg() does.
+ *
+ * Setting RB_SLP_GPIO_WAKE alone is not enough, and that was the fault: the
+ * chip slept beautifully and nothing could wake it.
+ *
+ * RB_WAKE_EV_MODE selects how the wake event is interpreted -- 0 means the
+ * event must stay valid for a long time, 1 means a short pulse is accepted.
+ * A button edge is a short pulse. Without this bit the edge is simply not
+ * seen, and the only way out is a reset.
+ *
+ * RB_WAKE_DLY_MOD sets how long the chip waits for clocks to come back
+ * before running code. 01 is WCH's own default: "short time, 520 cycles +
+ * TSUHSE", which allows the 32 MHz crystal to restart. Leaving it at 00
+ * costs 3590 cycles of wake latency for no benefit here; the faster
+ * settings risk running before the HSE is stable.
+ *
+ * Each write gets its own safe-access unlock, as WCH does -- the unlock
+ * window is only a few cycles wide, and stacking writes into one can miss
+ * it.
+ */
+static void arm_gpio_wake(void)
+{
+	SYS_SAFE_ACCESS(
+		R8_SLP_WAKE_CTRL |= RB_WAKE_EV_MODE | RB_SLP_GPIO_WAKE;
+	);
+	SYS_SAFE_ACCESS(
+		R8_SLP_POWER_CTRL &= ~RB_WAKE_DLY_MOD;
+	);
+	SYS_SAFE_ACCESS(
+		R8_SLP_POWER_CTRL |= 0x01; /* short delay, 520 cycles + TSUHSE */
+	);
+}
+
 void power_init(void)
 {
 	/*
@@ -76,6 +110,7 @@ void power_init(void)
 	SleepInit();  /* arm RTC wake and its interrupt */
 
 	quiesce_unused_pins();
+	arm_gpio_wake();
 }
 
 uint32_t power_rtc_ticks(void)
@@ -140,7 +175,14 @@ void power_sleep(void)
 	 * No RTC alarm is set, so a button edge is the only thing that can
 	 * wake us. RB_SLP_GPIO_WAKE was armed in buttons_init().
 	 */
-	LowPowerSleepWFI(RB_PWR_RAM2K | RB_PWR_RAMX | RB_PWR_EXTEND);
+	/*
+	 * RB_PWR_MUST_0010 is documented in the register map as a field that
+	 * must be written with 0010. ch32fun's helper does not include it;
+	 * WCH's LowPower_Sleep() does, as (2 << 11). Passing it here means the
+	 * helper ORs it into the plan it writes.
+	 */
+	LowPowerSleepWFI(RB_PWR_RAM2K | RB_PWR_RAMX | RB_PWR_EXTEND |
+	                 RB_PWR_MUST_0010);
 
 	/* The DC-DC is switched off across sleep and the radio comes back in
 	 * an undefined state; both have to be re-established before use. */

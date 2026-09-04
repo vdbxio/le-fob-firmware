@@ -69,6 +69,31 @@ flag.
 The first is why the measurement looked the way it did. The second is a
 latent hang that the same review turned up.
 
+### Then it slept, and would not wake
+
+With those fixed the floor fell to **40 nA average** — and no button could
+wake it. That is a third fault, and the opposite failure: too deep to
+return from.
+
+`buttons_init()` armed the wake source with `R8_SLP_WAKE_CTRL |=
+RB_SLP_GPIO_WAKE` and nothing else. WCH's own `PWR_PeriphWakeUpCfg()` sets
+two more things:
+
+- **`RB_WAKE_EV_MODE`** — "0 = event keep valid for long time, 1 = short
+  pulse event". A button edge *is* a short pulse. Without this bit the edge
+  is never seen, and the only way out is a reset.
+- **`RB_WAKE_DLY_MOD`** — how long to wait for clocks before running code.
+  WCH's default is `01`, "short time, 520 cycles + TSUHSE", which lets the
+  32 MHz crystal restart.
+
+Arming the wake source now lives in `power.c` rather than `buttons.c`. Having
+two files each own part of one configuration is how the incomplete version
+went unnoticed.
+
+Also added: `RB_PWR_MUST_0010` to the sleep power plan. The register map
+documents that field as one that must be written with `0010`; WCH's
+`LowPower_Sleep()` includes it as `(2 << 11)` and ch32fun's helper does not.
+
 ## Next step
 
 Flash with sleep enabled and re-measure:

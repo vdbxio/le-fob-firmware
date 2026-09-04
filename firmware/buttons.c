@@ -307,14 +307,12 @@ void buttons_init(void)
 	}
 
 	/*
-	 * Let a GPIO edge bring the chip out of deep sleep. Armed even when
-	 * FOB_SLEEP_ENABLE is 0 -- it costs nothing while awake, and it means
-	 * the wake path is exercised by the same code that ships.
+	 * Arming GPIO as a wake source lives in power.c (arm_gpio_wake), not
+	 * here. It needs more than the RB_SLP_GPIO_WAKE bit -- an event mode
+	 * and a wake delay as well -- and having two files each set part of it
+	 * is how the incomplete version survived. The interrupts enabled below
+	 * are what that wake source actually listens to.
 	 */
-	SYS_SAFE_ACCESS(
-		R8_SLP_WAKE_CTRL |= RB_SLP_GPIO_WAKE;
-	);
-
 	NVIC_EnableIRQ(GPIOA_IRQn);
 	NVIC_EnableIRQ(GPIOB_IRQn);
 }
