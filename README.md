@@ -58,22 +58,27 @@ To flash: hold **SW1**, plug in USB, release **SW1**, then
 make flash
 ```
 
+### A brand-new board
+
+```bash
+make fresh
+```
+
+Same SW1-hold gesture. Runs the two one-time steps a factory-fresh CH592
+needs — `-D` for the PB23 reset-disable, and `-n` to disable the debug module,
+without which a fresh part refuses to program over USB ISP — then flashes.
+
+`-n` prompts for confirmation twice and is close to one-way: afterwards the
+chip programs only through the bootloader, and **`make console` stops working
+on that board permanently**. That is why `make flash` does neither half. Use
+`make fresh` once per new board, `make flash` from then on.
+
 That first runs `minichlink -D`, the PB23 reset-disable described above.
 minichlink implements it over the ISP transport and checks the current
 setting before writing, so re-running it on every flash costs nothing.
 
-If a factory-fresh part refuses to program over USB ISP because the debug
-module is still enabled, there is a separate target:
-
-```bash
-make disable-debug
-```
-
-This is deliberately **not** part of `make flash`. It prompts for
-confirmation twice — which would wedge an automated build — and it is close
-to one-way: afterwards the chip can only be programmed through the
-bootloader, and `printf`-over-SWIO stops working permanently. Run it by hand,
-once, knowingly.
+`make disable-debug` does the `-n` step alone, if you want it without
+reflashing.
 
 > If minichlink warns *"you have debug enabled… Proceeding will only erase
 > the flash"*, stop and re-run — continuing erases without programming.

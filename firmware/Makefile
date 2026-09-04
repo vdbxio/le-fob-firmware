@@ -34,6 +34,34 @@ flash : $(TARGET).bin $(MINICHLINK)/minichlink
 	$(MINICHLINK)/minichlink -D
 	$(MINICHLINK)/minichlink -w $< flash -b
 
+# One-time preparation for a factory-fresh board, then flash it.
+#
+#   Hold SW1 (PB22), plug USB, release SW1, then run this.
+#
+# Does everything a new CH592 needs before it will behave like the others,
+# in the order it needs it:
+#
+#   -D  PB23 stops acting as hardware reset, so SW3 becomes a usable button
+#   -n  disables the debug module. A factory-fresh part refuses to program
+#       over USB ISP with it enabled. This prompts for confirmation twice
+#       and is close to one-way: afterwards the chip programs only through
+#       the bootloader, and printf-over-SWIO -- `make console` -- stops
+#       working on this board permanently.
+#
+# `make flash` deliberately does neither of the destructive halves. Use this
+# once per new board, then `make flash` from then on.
+fresh : $(TARGET).bin $(MINICHLINK)/minichlink
+	@echo
+	@echo "  === make fresh: one-time preparation for a NEW board ==="
+	@echo "  Disables the debug module. minichlink will ask twice."
+	@echo "  After this, 'make console' will not work on this board again;"
+	@echo "  SWIO printf is gone and USB CDC is the only console route."
+	@echo "  Ctrl-C now if that is not what you want."
+	@echo
+	$(MINICHLINK)/minichlink -D
+	$(MINICHLINK)/minichlink -n
+	$(MINICHLINK)/minichlink -w $< flash -b
+
 # Just the PB23 reset-disable, if you want it without reflashing.
 disable-reset : $(MINICHLINK)/minichlink
 	$(MINICHLINK)/minichlink -D
@@ -56,4 +84,4 @@ console : $(MINICHLINK)/minichlink
 
 clean : cv_clean
 
-.PHONY: all flash disable-reset disable-debug console clean
+.PHONY: all fresh flash disable-reset disable-debug console clean
