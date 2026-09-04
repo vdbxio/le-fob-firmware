@@ -31,6 +31,7 @@ EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
 #
 #   make CHARGER=0 flash        charger driver out
 #   make CHARGER_INT=0 flash    charger driver on, but no PA4 wake/chirp
+#   make CHIRP_TEXT=1 flash     chirp carries the text object (unproven)
 #   make SLEEP=0 flash          stay awake (bring-up)
 #   make RADIO=0 flash          no BLE (LED diagnostics)
 #   make PULLUPS=0 flash        no internal pull-ups on unused pins
@@ -54,6 +55,9 @@ EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER=$(CHARGER)
 endif
 ifdef CHARGER_INT
 EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER_INT=$(CHARGER_INT)
+endif
+ifdef CHIRP_TEXT
+EXTRA_CFLAGS += -DFOB_CHIRP_TEXT=$(CHIRP_TEXT)
 endif
 ifdef SLEEP
 EXTRA_CFLAGS += -DFOB_SLEEP_ENABLE=$(SLEEP)

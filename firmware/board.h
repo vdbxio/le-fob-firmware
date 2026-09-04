@@ -290,6 +290,21 @@
 #endif
 
 /*
+ * Whether the periodic chirp carries a BTHome text object (0x53) with the
+ * human-readable charger state, or the plain button-none frame.
+ *
+ * Off by default: the text frame has not been confirmed received, and when
+ * it was the default the interval broadcast stopped landing in Home
+ * Assistant entirely. The button-none frame is the one HA has accepted
+ * reliably. Turn this on only to test the text object:
+ *
+ *     make CHIRP_TEXT=1 flash
+ */
+#ifndef FOB_CHIRP_TEXT
+#define FOB_CHIRP_TEXT 0
+#endif
+
+/*
  * How long to stay awake after a chirp before sleeping again. Button wakes
  * use FOB_IDLE_LINGER_MS, which is sized for a human between taps; a chirp
  * wake has no human in it and only needs the burst to finish.

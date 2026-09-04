@@ -59,8 +59,30 @@ void ble_adv_send_heartbeat(const char *status_text)
 	tx_button = -1; /* no pad to light: nothing was pressed */
 
 	packet_id++;
+
+#if FOB_CHIRP_TEXT
+	/*
+	 * Chirp carries a BTHome text object. This frame shape has not yet
+	 * been confirmed received, so it is behind a knob; the button-none
+	 * frame below is the one Home Assistant has actually accepted.
+	 */
 	adv_len = bthome_build_status_adv(adv_buf, pdu_header, mac, packet_id,
 	                                  status_text);
+#else
+	/*
+	 * Proven chirp: the same button frame a press sends, but with every
+	 * button at "none". Home Assistant received this reliably; it keeps
+	 * "last seen" fresh without introducing an untested object type.
+	 */
+	uint8_t events[NUM_BUTTONS];
+
+	for (int i = 0; i < NUM_BUTTONS; i++)
+		events[i] = BTHOME_EVT_NONE;
+
+	(void)status_text;
+	adv_len = bthome_build_adv(adv_buf, pdu_header, mac, events, packet_id);
+#endif
+
 	rounds_left  = ADV_HEARTBEAT_ROUNDS;
 	t_last_round = 0;
 }
