@@ -1,5 +1,52 @@
 # Power budget
 
+## Confirmed 2026-09-04 — sleep and wake both working
+
+69.6 s capture, PPK2 sourcing 4 V into the battery connector, NTC GND-side
+resistor removed, charger driver off. Ten button events over the capture.
+
+| | |
+|---|---|
+| **Sleep floor** | **35.9 µA**, mean over 51.5 s of sleep |
+| Re-established after activity | yes, after every one of 10 wake events |
+| Sleep dips *during* activity | none — lowest 1 ms inside an event is 1.3–2.2 mA |
+| **Charge per press** | **~2 µAh** (press/double/triple); ~5 µAh for a long hold |
+
+Both of the numbers that matter are now measured rather than predicted:
+the floor *after* activity, and the cost of a press.
+
+### Projected life, 120 mAh cell
+
+| presses / day | days |
+|---|---|
+| 0 | 139 |
+| 20 | 133 |
+| 50 | 125 |
+| 100 | 113 |
+| 200 | 95 |
+
+The idle floor dominates: 100 presses a day costs ~20% of the budget.
+This is the baseline any scheduled chirp gets costed against — a chirp is
+a wake plus a burst, so on the order of one press.
+
+### What it took
+
+For the record, the sleep/wake path needed six distinct fixes, each of
+which was invisible from outside the chip and presented as "sleep does not
+work" or "it stops after a press":
+
+1. SysTick left armed across `WFI` — deep sleep lasted under a millisecond
+2. no RTC interrupt handler — latent hang on the daily counter wrap
+3. wake-mode bits set for pulse events on level-held buttons
+4. pin configuration not restored after the wake's partial reset
+5. a `Delay_Us` in the wake path before SysTick was restored — hang
+6. `SLEEPDEEP` left set by ch32fun's sleep helper, so every idle `WFI`
+   thereafter was a deep sleep with no restore — the LED corruption
+
+All six are now pinned by `tests/test_power.c` against stubbed registers.
+
+---
+
 ## Measured 2026-09-04 — sleep confirmed working
 
 52.5 s capture, PPK2 sourcing 4 V into the battery connector, buttons
