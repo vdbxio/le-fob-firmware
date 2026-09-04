@@ -170,10 +170,39 @@ uint32_t power_rtc_elapsed_ms(uint32_t from, uint32_t to)
  * returns to the main loop rather than into a spin, and so the flag cannot
  * sit pending and keep WFI from ever sleeping.
  */
+static volatile uint8_t g_rtc_wake;
+
 void RTC_IRQHandler(void) __attribute__((interrupt));
 void RTC_IRQHandler(void)
 {
 	R8_RTC_FLAG_CTRL = RB_RTC_TRIG_CLR;
+	g_rtc_wake       = 1;
+}
+
+uint8_t power_take_rtc_wake(void)
+{
+	uint8_t w = g_rtc_wake;
+
+	g_rtc_wake = 0;
+	return w;
+}
+
+void power_sleep_for_ms(uint32_t ms)
+{
+	if (ms) {
+		/*
+		 * Integer conversion rather than ch32fun's MS_TO_RTC(), which
+		 * is a floating-point macro. 32768 ticks per second is
+		 * ms * 4096 / 125 exactly; split so it stays in 32 bits for any
+		 * ms up to the counter's daily wrap, with no soft-float and no
+		 * 64-bit divide. RTC_setAlarm() handles that wrap itself.
+		 */
+		uint32_t ticks = (ms / 125u) * 4096u + ((ms % 125u) * 4096u) / 125u;
+
+		RTC_setAlarm(ticks);
+	}
+
+	power_sleep();
 }
 
 void power_sleep(void)

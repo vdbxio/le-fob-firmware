@@ -40,6 +40,16 @@ void power_apply_pin_config(void);
 void power_sleep(void);
 
 /*
+ * Deep sleep for at most `ms` milliseconds, waking earlier on a button.
+ * `ms` of 0 means no timed wake at all -- identical to power_sleep().
+ * Returns once awake, with clocks, pins and radio restored.
+ */
+void power_sleep_for_ms(uint32_t ms);
+
+/* Test-and-clear: did the RTC alarm fire since last asked? */
+uint8_t power_take_rtc_wake(void);
+
+/*
  * Idle until the next interrupt -- a plain WFI with the clocks running,
  * not a deep sleep. Use this for the "nothing to do until the next tick"
  * case; power_sleep() is for the "nothing to do at all" case.

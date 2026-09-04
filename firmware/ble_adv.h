@@ -17,6 +17,13 @@ void ble_adv_init(void);
  * flight -- the newer gesture is the one the user cares about. */
 void ble_adv_send_event(uint8_t button, uint8_t event);
 
+/*
+ * Queue a status chirp: the same frame with every button reporting "none",
+ * a fresh packet ID, and a shorter burst. Its job is to refresh the
+ * receiver's "last seen"; later it will carry charge state too.
+ */
+void ble_adv_send_heartbeat(void);
+
 /* Drive the burst. Transmits at most one round (three channels) per call
  * and only when ADV_ROUND_INTERVAL_MS has elapsed. */
 void ble_adv_tick(uint32_t now);

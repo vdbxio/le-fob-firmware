@@ -31,6 +31,7 @@
 #include "ble_adv.h"
 #include "power.h"
 #include "charger.h"
+#include "chirp.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
  * SysTick ISR. */
@@ -137,11 +138,15 @@ int main(void)
 	if (FOB_ENABLE_CHARGER)
 		charger_init();
 
+	chirp_init(power_rtc_ticks());
+
 	banner();
 
-	/* Last time anything happened. Only the sleep path reads this, so it
-	 * is deliberately unused in a FOB_SLEEP_ENABLE=0 build. */
+	/* Last time anything happened, and how long to stay up after it.
+	 * Only the sleep path reads these, so they are deliberately unused in
+	 * a FOB_SLEEP_ENABLE=0 build. */
 	__attribute__((unused)) uint32_t t_active = g_millis;
+	__attribute__((unused)) uint32_t linger   = FOB_IDLE_LINGER_MS;
 
 	while (1) {
 		if (g_tick) {
@@ -176,6 +181,24 @@ int main(void)
 			if (!FOB_DISABLE_RADIO)
 				ble_adv_tick(now);
 
+			/*
+			 * The chirp is scheduled purely by RTC time. The RTC alarm
+			 * exists only to wake the chip; whether a chirp is due is
+			 * decided here, so a button wake that lands just before the
+			 * alarm sends it too, and an alarm that fires while awake
+			 * costs nothing extra.
+			 */
+			if (CHIRP_INTERVAL_MS && chirp_due(power_rtc_ticks())) {
+				if (!FOB_DISABLE_RADIO)
+					ble_adv_send_heartbeat();
+				chirp_mark_sent(power_rtc_ticks());
+				printf("chirp\n");
+			}
+
+			if (buttons_busy()) {
+				/* A human is involved: use the human linger. */
+				linger = FOB_IDLE_LINGER_MS;
+			}
 			if (buttons_busy() || led_anim_busy() || ble_adv_busy())
 				t_active = now;
 		}
@@ -187,12 +210,17 @@ int main(void)
 		 * a short linger so a user between taps of a double-press is
 		 * never cut off.
 		 */
-		if ((uint32_t)(g_millis - t_active) >= FOB_IDLE_LINGER_MS) {
+		if ((uint32_t)(g_millis - t_active) >= linger) {
 			led_anim_all_off();
 
 			uint32_t slept_from = power_rtc_ticks();
 
-			power_sleep();
+			/*
+			 * Sleep until the next chirp is due, or until a button. A
+			 * zero interval disables timed wakes entirely.
+			 */
+			power_sleep_for_ms(CHIRP_INTERVAL_MS
+			                   ? chirp_ms_until(slept_from) : 0);
 
 			/*
 			 * g_millis did not advance while asleep -- SysTick is
@@ -202,9 +230,18 @@ int main(void)
 			uint32_t slept_ms =
 				power_rtc_elapsed_ms(slept_from, power_rtc_ticks());
 
-			printf("wake after %lums (%s)\n", (unsigned long)slept_ms,
-			       buttons_take_wake() ? "button" : "other");
+			uint8_t by_button = buttons_take_wake();
+			uint8_t by_rtc    = power_take_rtc_wake();
 
+			printf("wake after %lums (%s)\n", (unsigned long)slept_ms,
+			       by_button ? "button" : by_rtc ? "rtc" : "other");
+
+			/*
+			 * A chirp wake has no human in it. Stay up only long enough
+			 * for the burst; a button press during that window switches
+			 * back to the human linger above.
+			 */
+			linger   = by_button ? FOB_IDLE_LINGER_MS : FOB_CHIRP_LINGER_MS;
 			t_active = g_millis;
 		} else {
 			power_idle();

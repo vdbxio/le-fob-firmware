@@ -43,6 +43,28 @@ void ble_adv_resume(void)
 	iSLERInit(tx_power);
 }
 
+static void start_burst(const uint8_t events[NUM_BUTTONS], uint8_t rounds)
+{
+	packet_id++;
+	adv_len = bthome_build_adv(adv_buf, pdu_header, mac, events, packet_id);
+
+	/* Start a fresh burst. Anything still queued from a previous frame
+	 * is abandoned: the newer information is the one that matters. */
+	rounds_left  = rounds;
+	t_last_round = 0; /* forces the first round on the next tick */
+}
+
+void ble_adv_send_heartbeat(void)
+{
+	uint8_t events[NUM_BUTTONS];
+
+	for (int i = 0; i < NUM_BUTTONS; i++)
+		events[i] = BTHOME_EVT_NONE;
+
+	tx_button = -1; /* no pad to light: nothing was pressed */
+	start_burst(events, ADV_HEARTBEAT_ROUNDS);
+}
+
 void ble_adv_send_event(uint8_t button, uint8_t event)
 {
 	uint8_t events[NUM_BUTTONS];
@@ -60,14 +82,7 @@ void ble_adv_send_event(uint8_t button, uint8_t event)
 		events[button] = event;
 
 	tx_button = (int8_t)button;
-
-	packet_id++;
-	adv_len = bthome_build_adv(adv_buf, pdu_header, mac, events, packet_id);
-
-	/* Start a fresh burst. Anything still queued from a previous gesture
-	 * is abandoned: the user has moved on. */
-	rounds_left  = ADV_BURST_ROUNDS;
-	t_last_round = 0; /* forces the first round on the next tick */
+	start_burst(events, ADV_BURST_ROUNDS);
 }
 
 void ble_adv_tick(uint32_t now)

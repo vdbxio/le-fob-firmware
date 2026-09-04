@@ -9,6 +9,7 @@ ADDITIONAL_C_FILES := \
 	ble_adv.c \
 	power.c \
 	charger.c \
+	chirp.c \
 	libc_shim.c
 
 CH32FUN := ../ch32fun/ch32fun

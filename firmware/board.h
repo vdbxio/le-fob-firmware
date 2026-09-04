@@ -220,6 +220,51 @@
 #define ADV_ROUND_INTERVAL_MS 20
 #endif
 
+/*
+ * Rounds for the periodic status chirp. Fewer than a button event: a
+ * missed chirp is repaired by the next one, whereas a missed press is
+ * simply gone. Each round is one wake-cycle's worth of radio, so this
+ * trades reliability of a single chirp against battery directly.
+ */
+#ifndef ADV_HEARTBEAT_ROUNDS
+#define ADV_HEARTBEAT_ROUNDS 4
+#endif
+
+/* ------------------------------------------------------------------ */
+/* Status chirp                                                        */
+/* ------------------------------------------------------------------ */
+/*
+ * How often the fob wakes on its own to advertise, with no button pressed.
+ *
+ * This is the single largest lever on battery life now that the idle floor
+ * is ~36 uA. A chirp is a wake plus a burst, roughly the cost of one button
+ * press (~2 uAh), so at the measured floor on the 120 mAh cell:
+ *
+ *      interval   chirps/day   days
+ *        30 s        2880        20
+ *        60 s        1440        36
+ *         5 min       288        95
+ *        15 min        96       124
+ *        30 min        48       132
+ *        never          0       139
+ *
+ * The default is 5 minutes: Home Assistant's "last seen" stays fresh
+ * enough to trust, at ~two thirds of the no-chirp lifetime. Set to 0 to
+ * disable chirping entirely.
+ */
+#ifndef CHIRP_INTERVAL_MS
+#define CHIRP_INTERVAL_MS (5u * 60u * 1000u)
+#endif
+
+/*
+ * How long to stay awake after a chirp before sleeping again. Button wakes
+ * use FOB_IDLE_LINGER_MS, which is sized for a human between taps; a chirp
+ * wake has no human in it and only needs the burst to finish.
+ */
+#ifndef FOB_CHIRP_LINGER_MS
+#define FOB_CHIRP_LINGER_MS 30
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Diagnostics                                                        */
 /* ------------------------------------------------------------------ */

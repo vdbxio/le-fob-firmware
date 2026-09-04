@@ -29,6 +29,8 @@ unsigned char  R8_RTC_FLAG_CTRL;
 unsigned short R16_RTC_CNT_LSI;
 unsigned short R16_RTC_CNT_DIV1;
 unsigned g_last_power_plan;
+unsigned g_alarm_ticks;
+int      g_alarm_calls;
 unsigned g_systick_ctlr_at_sleep;
 
 static SysTick_Type systick_storage;
@@ -201,7 +203,26 @@ int main(void)
 	check(!(nvic_storage.SCTLR & (1u << 2)),
 	      "power_idle() clears it before its own WFI regardless");
 
-	printf("\n== RTC handler clears its flag ==\n");
+	printf("\n== timed sleep arms the RTC alarm ==\n");
+
+	g_alarm_calls = 0; g_alarm_ticks = 0;
+	power_sleep_for_ms(0);
+	check(g_alarm_calls == 0, "ms=0 arms no alarm -- button wake only");
+
+	g_alarm_calls = 0;
+	power_sleep_for_ms(1000);
+	check(g_alarm_calls == 1 && g_alarm_ticks == 32768,
+	      "1000 ms -> exactly 32768 ticks");
+
+	power_sleep_for_ms(5u * 60u * 1000u);
+	check(g_alarm_ticks == 5u * 60u * 32768u, "5 minutes -> exact tick count");
+
+	/* The 32-bit split must agree with the exact conversion for odd values. */
+	power_sleep_for_ms(123456);
+	check(g_alarm_ticks == (unsigned)(((unsigned long long)123456 * 32768u) / 1000u),
+	      "odd millisecond count converts exactly, no 64-bit divide");
+
+	printf("\n== RTC handler clears its flag and reports the wake ==\n");
 
 	/*
 	 * SleepInit() enables RTC_IRQn and ch32fun's unhandled-interrupt
@@ -210,8 +231,11 @@ int main(void)
 	 * keep WFI from ever sleeping.
 	 */
 	R8_RTC_FLAG_CTRL = 0;
+	power_take_rtc_wake();
 	RTC_IRQHandler();
 	check(R8_RTC_FLAG_CTRL & RB_RTC_TRIG_CLR, "trigger flag is cleared");
+	check(power_take_rtc_wake() == 1, "RTC wake reported once");
+	check(power_take_rtc_wake() == 0, "and cleared by being taken");
 
 	printf("\n== RTC elapsed time survives the daily wrap ==\n");
 

@@ -8,12 +8,15 @@
 #define LEFOB_TEST_LOWPOWER_H
 
 extern unsigned g_last_power_plan;
+extern unsigned g_alarm_ticks;        /* last RTC_setAlarm() argument, 0 = none */
+extern int      g_alarm_calls;
 extern unsigned g_systick_ctlr_at_sleep;
 
 static inline void DCDCEnable(void) {}
 static inline void LSIEnable(void) {}
 static inline void RTC_init(void) {}
 static inline void SleepInit(void) {}
+static inline void RTC_setAlarm(unsigned ticks) { g_alarm_ticks = ticks; g_alarm_calls++; }
 static inline void LowPowerSleepWFI(unsigned power_plan)
 {
 	g_last_power_plan = power_plan;
