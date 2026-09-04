@@ -16,6 +16,13 @@
 void power_init(void);
 
 /*
+ * Arm GPIO as a wake source. Called by power_init(); exposed so the host
+ * tests can assert the full register state, because arming this partially
+ * is a silent failure -- the fob sleeps and simply never comes back.
+ */
+void power_arm_gpio_wake(void);
+
+/*
  * Deep sleep until a button edge. Returns once awake, with the clocks and
  * the radio restored.
  *

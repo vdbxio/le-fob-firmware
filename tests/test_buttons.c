@@ -28,7 +28,6 @@ uint16_t R16_PA_INT_EN, R16_PB_INT_EN;
 uint16_t R16_PA_INT_MODE, R16_PB_INT_MODE;
 uint16_t R16_PA_INT_IF, R16_PB_INT_IF;
 uint16_t R16_PIN_ALTERNATE;
-uint8_t  R8_SLP_WAKE_CTRL;
 
 static int      failures;
 static uint32_t now;
@@ -183,13 +182,14 @@ int main(void)
 	/* PB22 -> int bit 8, PB23 -> int bit 9, PB4 -> bit 4. */
 	int pb_en = R16_PB_INT_EN == ((1u << 8) | (1u << 9) | (1u << 4));
 	int pa_en = R16_PA_INT_EN == (1u << 9);
-	int wake  = (R8_SLP_WAKE_CTRL & RB_SLP_GPIO_WAKE) != 0;
 
 	printf("  %-46s %s\n", "RB_PIN_INTX set for PB22/PB23", intx ? "ok" : "FAIL");
 	printf("  %-46s %s\n", "PB interrupts armed on bits 4, 8, 9", pb_en ? "ok" : "FAIL");
 	printf("  %-46s %s\n", "PA interrupt armed on bit 9", pa_en ? "ok" : "FAIL");
-	printf("  %-46s %s\n", "GPIO sleep wake enabled", wake ? "ok" : "FAIL");
-	failures += !intx + !pb_en + !pa_en + !wake;
+	/* Arming GPIO as a wake source is power.c's job and is asserted in
+	 * test_power.c -- it needs more than one bit, and splitting it across
+	 * two files is what let an incomplete version ship. */
+	failures += !intx + !pb_en + !pa_en;
 
 	printf("\n%s\n", failures ? "FAILURES" : "all checks passed");
 	return failures ? 1 : 0;

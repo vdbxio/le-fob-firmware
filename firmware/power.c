@@ -77,7 +77,7 @@ static void quiesce_unused_pins(void)
  * window is only a few cycles wide, and stacking writes into one can miss
  * it.
  */
-static void arm_gpio_wake(void)
+void power_arm_gpio_wake(void)
 {
 	SYS_SAFE_ACCESS(
 		R8_SLP_WAKE_CTRL |= RB_WAKE_EV_MODE | RB_SLP_GPIO_WAKE;
@@ -110,7 +110,7 @@ void power_init(void)
 	SleepInit();  /* arm RTC wake and its interrupt */
 
 	quiesce_unused_pins();
-	arm_gpio_wake();
+	power_arm_gpio_wake();
 }
 
 uint32_t power_rtc_ticks(void)

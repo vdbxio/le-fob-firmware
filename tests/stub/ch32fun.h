@@ -5,9 +5,18 @@
 
 #include <stdint.h>
 
+#define PA4  (0x00000010)
+#define PA5  (0x00000020)
+#define PA8  (0x00000100)
 #define PA9  (0x00000200)
+#define PA12 (0x00001000)
+#define PA13 (0x00002000)
+#define PA14 (0x00004000)
+#define PA15 (0x00008000)
 #define PB0  (0x80000001)
 #define PB4  (0x80000010)
+#define PB12 (0x80001000)
+#define PB13 (0x80002000)
 #define PB6  (0x80000040)
 #define PB7  (0x80000080)
 #define PB14 (0x80004000)
@@ -43,5 +52,39 @@ typedef enum { GPIO_CFGLR_IN_PUPD } GPIOModeTypeDef;
 
 typedef enum { GPIOA_IRQn, GPIOB_IRQn } IRQn_Type;
 #define NVIC_EnableIRQ(n) ((void)(n))
+
+/* --- sleep / wake registers, as variables ------------------------------ */
+extern unsigned char  R8_SLP_WAKE_CTRL;
+extern unsigned char  R8_SLP_POWER_CTRL;
+extern unsigned char  R8_RTC_FLAG_CTRL;
+extern unsigned short R16_RTC_CNT_LSI;
+extern unsigned short R16_RTC_CNT_DIV1;
+
+#define RB_SLP_GPIO_WAKE  0x10
+#define RB_WAKE_EV_MODE   0x40
+#define RB_WAKE_DLY_MOD   0x03
+#define RB_RTC_TRIG_CLR   0x20
+
+#define RB_PWR_RAM2K      0x02
+#define RB_PWR_CORE       0x04
+#define RB_PWR_EXTEND     0x08
+#define RB_PWR_RAMX       0x10
+#define RB_PWR_MUST_0010  0x1000
+#define RB_PWR_PLAN_EN    0x8000
+
+#define RTC_MAX_COUNT     0xA8C00000u
+
+#define FUN_LOW  0
+#define FUN_HIGH 1
+#define GPIO_CFGLR_OUT_2Mhz_PP 3
+#define funDigitalWrite(pin, v) ((void)(pin), (void)(v))
+
+#define SysTick_IRQn 12
+#define NVIC_ClearPendingIRQ(n) ((void)(n))
+#define SYSTICK_CTLR_STIE (1 << 1)
+#define FUNCONF_SYSTEM_CORE_CLOCK 60000000
+
+typedef struct { unsigned CTLR, SR; unsigned long long CNT, CMP; } SysTick_Type;
+extern SysTick_Type *SysTick;
 
 #endif
