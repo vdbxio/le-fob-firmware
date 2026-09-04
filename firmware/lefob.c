@@ -148,6 +148,10 @@ int main(void)
 	__attribute__((unused)) uint32_t t_active = g_millis;
 	__attribute__((unused)) uint32_t linger   = FOB_IDLE_LINGER_MS;
 
+	/* RTC time of the last interim (charger-triggered) chirp, for the
+	 * rate limit. Starts far enough back that the first one is allowed. */
+	uint32_t t_last_interim = power_rtc_ticks() - 32768u * 60u;
+
 	while (1) {
 		if (g_tick) {
 			g_tick = 0;
@@ -188,11 +192,36 @@ int main(void)
 			 * alarm sends it too, and an alarm that fires while awake
 			 * costs nothing extra.
 			 */
-			if (CHIRP_INTERVAL_MS && chirp_due(power_rtc_ticks())) {
+			uint32_t rtc = power_rtc_ticks();
+			int      send = 0;
+
+			if (CHIRP_INTERVAL_MS && chirp_due(rtc)) {
+				send = 1;
+				printf("chirp\n");
+			}
+
+			/*
+			 * Charger INT: plug, unplug, state change, fault. Worth an
+			 * interim chirp so the receiver hears about it now rather
+			 * than at the next scheduled one -- but INT can fire several
+			 * times in quick succession as the charger steps through
+			 * states, so anything inside CHARGER_INT_MIN_GAP_MS rides
+			 * along with the chirp already sent.
+			 */
+			if (buttons_take_charger_int()) {
+				if (power_rtc_elapsed_ms(t_last_interim, rtc) >=
+				    CHARGER_INT_MIN_GAP_MS) {
+					send           = 1;
+					t_last_interim = rtc;
+					printf("chirp (charger)\n");
+				}
+			}
+
+			if (send) {
 				if (!FOB_DISABLE_RADIO)
 					ble_adv_send_heartbeat();
-				chirp_mark_sent(power_rtc_ticks());
-				printf("chirp\n");
+				/* An interim chirp counts: restart the schedule. */
+				chirp_mark_sent(rtc);
 			}
 
 			if (buttons_busy()) {
@@ -234,7 +263,10 @@ int main(void)
 			uint8_t by_rtc    = power_take_rtc_wake();
 
 			printf("wake after %lums (%s)\n", (unsigned long)slept_ms,
-			       by_button ? "button" : by_rtc ? "rtc" : "other");
+			       by_button ? "button" : by_rtc ? "rtc" : "charger/other");
+
+			/* The charger flag is deliberately NOT taken here: it is
+			 * consumed in the tick above, where the chirp is sent. */
 
 			/*
 			 * A chirp wake has no human in it. Stay up only long enough

@@ -62,6 +62,16 @@ int buttons_busy(void);
  */
 uint8_t buttons_take_wake(void);
 
+/*
+ * Test-and-clear: did the charger's INT (PA4) fire since last asked?
+ *
+ * The charger interrupt shares the GPIOA vector with SW4 and is armed
+ * alongside the buttons in buttons_rearm() -- it has to survive a wake the
+ * same way they do -- but it is not a button and does not set the button
+ * wake flag, so the main loop can tell the two apart.
+ */
+uint8_t buttons_take_charger_int(void);
+
 /* Human-readable name for a BTHOME_EVT_* code, for logging. */
 const char *buttons_event_name(uint8_t event);
 

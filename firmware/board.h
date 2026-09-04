@@ -248,12 +248,28 @@
  *        30 min        48       132
  *        never          0       139
  *
- * The default is 5 minutes: Home Assistant's "last seen" stays fresh
- * enough to trust, at ~two thirds of the no-chirp lifetime. Set to 0 to
- * disable chirping entirely.
+ * The intended production value is 5 minutes: Home Assistant's "last seen"
+ * stays fresh enough to trust, at ~two thirds of the no-chirp lifetime.
+ * It is 1 minute for now so that development captures need not run for
+ * a quarter of an hour to contain a couple of chirps. Set to 0 to disable
+ * chirping entirely.
  */
 #ifndef CHIRP_INTERVAL_MS
-#define CHIRP_INTERVAL_MS (5u * 60u * 1000u)
+#define CHIRP_INTERVAL_MS (60u * 1000u)
+#endif
+
+/*
+ * The AW32001's INT pin (PA4) fires on plug, unplug, charge-state change
+ * and faults. Each one sends an interim chirp immediately, so Home
+ * Assistant learns about USB going in or out without waiting for the
+ * next scheduled one. An interim chirp also restarts the schedule.
+ *
+ * INT can chatter -- the charge state machine can step through several
+ * states in quick succession -- so interim chirps are rate-limited. Any
+ * INT inside this window is folded into the chirp already in flight.
+ */
+#ifndef CHARGER_INT_MIN_GAP_MS
+#define CHARGER_INT_MIN_GAP_MS 2000
 #endif
 
 /*

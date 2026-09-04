@@ -29,6 +29,9 @@ uint16_t R16_PA_INT_MODE, R16_PB_INT_MODE;
 uint16_t R16_PA_INT_IF, R16_PB_INT_IF;
 uint16_t R16_PIN_ALTERNATE;
 
+/* ISRs under test; interrupt attribute is rewritten to `used` on the host. */
+void GPIOA_IRQHandler(void);
+
 static int      failures;
 static uint32_t now;
 
@@ -181,7 +184,9 @@ int main(void)
 	int intx = (R16_PIN_ALTERNATE & RB_PIN_INTX) != 0;
 	/* PB22 -> int bit 8, PB23 -> int bit 9, PB4 -> bit 4. */
 	int pb_en = R16_PB_INT_EN == ((1u << 8) | (1u << 9) | (1u << 4));
-	int pa_en = R16_PA_INT_EN == (1u << 9);
+	/* Bit 9 is SW4. Bit 4 is the charger INT, asserted separately below,
+	 * so this is a membership test rather than an equality. */
+	int pa_en = (R16_PA_INT_EN & (1u << 9)) != 0;
 
 	printf("  %-46s %s\n", "RB_PIN_INTX set for PB22/PB23", intx ? "ok" : "FAIL");
 	printf("  %-46s %s\n", "PB interrupts armed on bits 4, 8, 9", pb_en ? "ok" : "FAIL");
@@ -190,6 +195,49 @@ int main(void)
 	 * test_power.c -- it needs more than one bit, and splitting it across
 	 * two files is what let an incomplete version ship. */
 	failures += !intx + !pb_en + !pa_en;
+
+	printf("\n== charger INT on PA4 ==\n");
+
+	/*
+	 * The AW32001's INT shares the GPIOA vector with SW4. It must be armed
+	 * (so it can wake the chip) and it must be told apart from a button:
+	 * a plug/unplug event sends a chirp, not a gesture, and uses the short
+	 * linger rather than the human one.
+	 */
+	int chg_en = (R16_PA_INT_EN & (1u << 4)) != 0;
+	printf("  %-46s %s\n", "PA4 interrupt armed alongside the buttons", chg_en ? "ok" : "FAIL");
+	failures += !chg_en;
+
+	/* Drain both flags first. */
+	buttons_take_wake(); buttons_take_charger_int();
+
+	/* Fire the ISR with only PA4 set. */
+	R16_PA_INT_IF = (1u << 4);
+	GPIOA_IRQHandler();
+	int c1 = buttons_take_charger_int() == 1;
+	int b1 = buttons_take_wake() == 0;
+	printf("  %-46s %s\n", "PA4 alone -> charger flag, not button wake", (c1 && b1) ? "ok" : "FAIL");
+	failures += !(c1 && b1);
+
+	/* Fire with only PA9 (SW4) set. */
+	R16_PA_INT_IF = (1u << 9);
+	GPIOA_IRQHandler();
+	int c2 = buttons_take_charger_int() == 0;
+	int b2 = buttons_take_wake() == 1;
+	printf("  %-46s %s\n", "SW4 alone -> button wake, not charger flag", (c2 && b2) ? "ok" : "FAIL");
+	failures += !(c2 && b2);
+
+	/*
+	 * The ISR acknowledges by writing the flags back (write-1-to-clear
+	 * on silicon). The stub is a plain variable, so after the ISR it
+	 * holds exactly what was acknowledged -- assert that is everything
+	 * that was pending, i.e. nothing was left un-acked to re-enter.
+	 */
+	R16_PA_INT_IF = (1u << 4) | (1u << 9);
+	GPIOA_IRQHandler();
+	printf("  %-46s %s\n", "ISR acknowledges every flag it saw",
+	       R16_PA_INT_IF == ((1u << 4) | (1u << 9)) ? "ok" : "FAIL");
+	failures += R16_PA_INT_IF != ((1u << 4) | (1u << 9));
 
 	printf("\n%s\n", failures ? "FAILURES" : "all checks passed");
 	return failures ? 1 : 0;

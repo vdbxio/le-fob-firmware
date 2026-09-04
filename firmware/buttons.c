@@ -47,6 +47,10 @@ static const btn_hw_t btn_hw[NUM_BUTTONS] = {
 };
 
 static volatile uint8_t g_wake_flag;
+static volatile uint8_t g_chg_int;
+
+/* PA4: the AW32001's open-drain INT. Falling edge, like the buttons. */
+#define CHG_INT_BIT (1u << 4)
 
 /* Active low: the pad reads 0 when the switch shorts it to ground. */
 static inline int btn_raw_pressed(const btn_hw_t *hw)
@@ -226,6 +230,14 @@ int buttons_busy(void)
 	return 0;
 }
 
+uint8_t buttons_take_charger_int(void)
+{
+	uint8_t w = g_chg_int;
+
+	g_chg_int = 0;
+	return w;
+}
+
 uint8_t buttons_take_wake(void)
 {
 	uint8_t w = g_wake_flag;
@@ -260,7 +272,13 @@ void GPIOA_IRQHandler(void)
 	uint16_t flags = R16_PA_INT_IF;
 
 	R16_PA_INT_IF = flags; /* write 1 to clear */
-	g_wake_flag   = 1;
+
+	/* Sort by source. PA4 is the charger; anything else on this port
+	 * that we armed is a button. */
+	if (flags & CHG_INT_BIT)
+		g_chg_int = 1;
+	if (flags & (uint16_t)~CHG_INT_BIT)
+		g_wake_flag = 1;
 }
 
 void GPIOB_IRQHandler(void) __attribute__((interrupt));
@@ -310,6 +328,18 @@ void buttons_rearm(void)
 			R16_PA_INT_EN   |= hw->int_bit;
 		}
 	}
+
+	/*
+	 * The charger's INT, on the same terms as the buttons: input with
+	 * pull-up (it is open drain), falling edge, and enabled here so it is
+	 * re-armed on every wake. RB_SLP_GPIO_WAKE is port-wide, so enabling
+	 * the interrupt is what makes it a wake source.
+	 */
+	funPinMode(PIN_CHG_INT, GPIO_CFGLR_IN_PUPD);
+	R16_PA_INT_MODE |= CHG_INT_BIT;
+	R32_PA_CLR       = CHG_INT_BIT;
+	R16_PA_INT_IF    = CHG_INT_BIT;
+	R16_PA_INT_EN   |= CHG_INT_BIT;
 
 	NVIC_EnableIRQ(GPIOA_IRQn);
 	NVIC_EnableIRQ(GPIOB_IRQn);
