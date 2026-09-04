@@ -85,6 +85,11 @@ static void banner(void)
 	if (FOB_DISABLE_RADIO)
 		printf("RADIO  DISABLED (FOB_DISABLE_RADIO=1) - LED diagnostic build\n");
 
+	/* Which build this is, so a power capture cannot be misattributed. */
+	printf("sleep  %s\n",
+	       FOB_SLEEP_ENABLE ? "deep sleep enabled"
+	                        : "DISABLED - idles in WFI, expect ~1 mA from the MCU");
+
 	/*
 	 * PB23 leaves the factory as RST#. Until the option bit is cleared,
 	 * pressing SW3 resets the chip instead of registering a press -- which

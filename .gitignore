@@ -20,3 +20,6 @@
 /tests/test_buttons
 /tests/test_leds
 /tests/*.dSYM/
+
+# PPK2 captures (large; keep locally or attach to an issue)
+*.csv
