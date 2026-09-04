@@ -24,6 +24,11 @@ extern uint8_t i2c_fake_log_val[I2C_FAKE_NLOG];
 extern int     i2c_fake_log_len;
 extern int     i2c_fake_init_khz;
 
+/* When nonzero, the next N reads return corrupted data -- modelling the
+ * library's BTF bug, where DATAR is re-read and the value overwritten. */
+extern int     i2c_fake_corrupt_reads;
+extern int     i2c_fake_clean_first;  /* let this many reads through untouched */
+
 static uint8_t i2c_fake_ptr;
 
 static inline uint8_t i2c_init(uint16_t khz)
@@ -67,6 +72,14 @@ static inline uint8_t i2c_readData(uint8_t addr, uint8_t *data, uint8_t len)
 		uint8_t r = (uint8_t)(i2c_fake_ptr + i);
 
 		data[i] = (r < I2C_FAKE_NREG) ? i2c_fake_reg[r] : 0xFF;
+	}
+
+	if (i2c_fake_clean_first > 0) {
+		i2c_fake_clean_first--;
+	} else if (i2c_fake_corrupt_reads > 0) {
+		i2c_fake_corrupt_reads--;
+		for (uint8_t i = 0; i < len; i++)
+			data[i] ^= 0x20;   /* flip FET_DIS, the dangerous bit */
 	}
 	return 0;
 }

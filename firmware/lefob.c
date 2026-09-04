@@ -83,7 +83,9 @@ static void banner(void)
 	printf("pads   SW1 PB22 | SW2 PB4 | SW3 PB23 | SW4 PA9\n");
 	printf("pixels %d on PB7 (PIXEL0)\n", WS2812_COUNT);
 
-	if (charger_present()) {
+	if (!FOB_ENABLE_CHARGER) {
+		printf("chgr   driver disabled (FOB_ENABLE_CHARGER=0)\n");
+	} else if (charger_present()) {
 		charger_status_t chg;
 
 		if (charger_read(&chg))
@@ -132,7 +134,8 @@ int main(void)
 	if (!FOB_DISABLE_RADIO)
 		ble_adv_init();
 
-	charger_init();
+	if (FOB_ENABLE_CHARGER)
+		charger_init();
 
 	banner();
 

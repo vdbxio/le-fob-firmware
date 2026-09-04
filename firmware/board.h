@@ -148,6 +148,27 @@
 #define CHARGER_I2C_KHZ 100
 #endif
 
+/*
+ * The charger driver is OFF by default.
+ *
+ * It is not proven on hardware, and its failure mode is severe rather than
+ * inconvenient: it read-modify-writes REG06, one bit of which is FET_DIS,
+ * and setting that puts the part into shipping mode -- from which this board
+ * cannot recover without USB. The I2C library it sits on can silently
+ * corrupt a received byte (it re-reads DATAR when BTF is set, overwriting
+ * the value), so a bad read becomes a bad write.
+ *
+ * charger.c now verifies every write and reverts the part to default mode if
+ * it cannot, but until that has actually been exercised on a board the
+ * conservative default is not to run it at all. Enable deliberately:
+ *
+ *     make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude \
+ *         -I../ch32fun/examples_ch5xx/i2c_sensors -DFOB_ENABLE_CHARGER=1"
+ */
+#ifndef FOB_ENABLE_CHARGER
+#define FOB_ENABLE_CHARGER 0
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Factory info block                                                 */
 /* ------------------------------------------------------------------ */

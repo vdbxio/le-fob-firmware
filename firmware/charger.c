@@ -10,6 +10,7 @@
  */
 #define AW_REG_POR_CTRL   0x01  /* CEB, EN_HIZ                          */
 #define AW_REG_CHG_CTRL   0x02  /* WD_RST (B6), REG_RST (B7)            */
+#define AW_REG_RST        0x80  /* REG02H B7: 0->1 is a software reset  */
 #define AW_REG_TIMER      0x05  /* reset 0x7A: EN_WD_DISCHG, WATCHDOG   */
 #define AW_REG_MAIN_CTRL  0x06  /* reset 0xC0: EN_NTC, TMR2X_EN, FET_DIS*/
 #define AW_REG_STATUS     0x08  /* reset 0x40, read-only                */
@@ -60,19 +61,63 @@ static int reg_write(uint8_t reg, uint8_t val)
 	return i2c_writeData(CHARGER_I2C_ADDR, buf, 2) == 0;
 }
 
-/* Read, apply a mask, write back only if it actually changed. */
-static int reg_update(uint8_t reg, uint8_t clear, uint8_t set)
+/*
+ * Read-modify-write, verified.
+ *
+ * Two things make a blind read-modify-write unsafe against this part on this
+ * bus, and both have teeth:
+ *
+ *   The I2C library can silently corrupt a received byte -- when BTF is set
+ *   it re-reads DATAR and overwrites the value it just took. A corrupted
+ *   read fed straight back into a write puts arbitrary bits into the
+ *   register.
+ *
+ *   REG06H bit 5 is FET_DIS. Setting it puts the AW32001 into shipping mode,
+ *   where all paths are disabled and the board draws nothing -- and on this
+ *   board the only exit is plugging in USB, because INT reaches nothing that
+ *   is powered. One flipped bit in a register write is the difference
+ *   between a working fob and a dead one.
+ *
+ * So: read twice and require agreement before trusting the value, never let
+ * `set` bits outside the mask through, and read back after writing to
+ * confirm the part took what was intended.
+ */
+static int reg_update(uint8_t reg, uint8_t clear, uint8_t set, uint8_t force_clear)
 {
-	uint8_t v;
+	uint8_t a, b;
 
-	if (!reg_read(reg, &v, 1))
+	/* A corrupted read is not repeatable, so two matching reads is a cheap
+	 * filter against the BTF bug above. */
+	if (!reg_read(reg, &a, 1) || !reg_read(reg, &b, 1) || a != b)
 		return 0;
 
-	uint8_t n = (uint8_t)((v & (uint8_t)~clear) | set);
+	uint8_t want = (uint8_t)((a & (uint8_t)~(clear | force_clear)) | set);
 
-	if (n == v)
-		return 1;
-	return reg_write(reg, n);
+	if (want != a && !reg_write(reg, want))
+		return 0;
+
+	/* Confirm. If the part did not take it, the caller must not carry on
+	 * as though it had. */
+	if (!reg_read(reg, &b, 1) || b != want)
+		return 0;
+
+	return 1;
+}
+
+/*
+ * Return the part to its power-on defaults and to "default mode", where it
+ * no longer expects a watchdog kick.
+ *
+ * This is the recovery path. Merely reading a register writes the address
+ * pointer, which is enough to move the AW32001 into host mode -- and in host
+ * mode an unkicked watchdog eventually turns Q1 and Q2 off, dropping the
+ * system rail. So if configuration cannot be completed and verified, leaving
+ * the part as-is is not neutral; it is a fob that power-cycles itself. A
+ * software reset is the way back.
+ */
+static void reg_reset(void)
+{
+	reg_write(AW_REG_CHG_CTRL, AW_REG_RST);
 }
 
 /* ------------------------------------------------------------------ */
@@ -144,10 +189,23 @@ int charger_init(void)
 	if (i2c_init(CHARGER_I2C_KHZ) != 0)
 		return 0;
 
-	if (!reg_read(AW_REG_CHIP_ID, &id, 1) || id != AW_CHIP_ID)
+	/*
+	 * Probe with two agreeing reads, for the same reason the writes are
+	 * verified: a single corrupted byte here would either reject a part
+	 * that is present, or -- worse -- be a coincidental 0x49 on a bus with
+	 * nothing on it. If two reads disagree, or agree on the wrong value,
+	 * this is not our charger and nothing further is written to it.
+	 */
+	uint8_t id2;
+
+	if (!reg_read(AW_REG_CHIP_ID, &id, 1) ||
+	    !reg_read(AW_REG_CHIP_ID, &id2, 1) ||
+	    id != id2 || id != AW_CHIP_ID)
 		return 0;
 
 	present = 1;
+
+	int ok = 1;
 
 	/*
 	 * Correction 1: disable the watchdog.
@@ -169,7 +227,7 @@ int charger_init(void)
 	 * it must happen before anything else, so no window exists where the
 	 * timer is running against writes we have already made.
 	 */
-	reg_update(AW_REG_TIMER, AW_WATCHDOG_MASK | AW_EN_WD_DISCHG, 0);
+	ok = reg_update(AW_REG_TIMER, AW_WATCHDOG_MASK | AW_EN_WD_DISCHG, 0, 0);
 
 	/*
 	 * Correction 2: disable the NTC function.
@@ -187,7 +245,26 @@ int charger_init(void)
 	 * The failure this avoids is quiet: the fob runs, sleeps, advertises,
 	 * and simply never charges.
 	 */
-	reg_update(AW_REG_MAIN_CTRL, AW_EN_NTC, 0);
+	/*
+	 * FET_DIS is force-cleared on this write rather than merely preserved.
+	 * Preserving it would be correct if the value read back were
+	 * trustworthy; forcing it clear is correct even when it is not.
+	 */
+	if (ok)
+		ok = reg_update(AW_REG_MAIN_CTRL, AW_EN_NTC, 0, AW_FET_DIS);
+
+	if (!ok) {
+		/*
+		 * Something did not verify. We are already in host mode -- the
+		 * register pointer write that starts any read is enough for
+		 * that -- so doing nothing would leave a live watchdog we
+		 * cannot kick. Put the part back to defaults and report the
+		 * charger as absent; the fob runs fine without it.
+		 */
+		reg_reset();
+		present = 0;
+		return 0;
+	}
 
 	return 1;
 }

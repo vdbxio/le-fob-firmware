@@ -27,6 +27,8 @@ uint8_t i2c_fake_log_reg[I2C_FAKE_NLOG];
 uint8_t i2c_fake_log_val[I2C_FAKE_NLOG];
 int     i2c_fake_log_len;
 int     i2c_fake_init_khz;
+int     i2c_fake_corrupt_reads;
+int     i2c_fake_clean_first;
 
 static int failures;
 
@@ -49,6 +51,8 @@ static void device_reset(void)
 	i2c_fake_reg[0x0A] = 0x49; /* chip ID */
 	i2c_fake_log_len   = 0;
 	i2c_fake_present   = 1;
+	i2c_fake_corrupt_reads = 0;
+	i2c_fake_clean_first   = 0;
 }
 
 /* Index of the first log entry touching `reg`, or -1. */
@@ -121,6 +125,43 @@ int main(void)
 	charger_init();
 	check(i2c_fake_log_len == before,
 	      "a second init writes nothing, the values already being right");
+
+	printf("\n== a corrupt read must not become a corrupt write ==\n");
+
+	/*
+	 * The I2C library can hand back a wrong byte (it re-reads DATAR when
+	 * BTF is set). Fed into a blind read-modify-write that reaches REG06,
+	 * a flipped bit 5 is FET_DIS -- shipping mode, and on this board the
+	 * only exit is USB. The driver must not turn a bad read into a write.
+	 */
+	/* Corruption during the probe: the part is simply not identified, and
+	 * nothing is written to a device we have not recognised. */
+	device_reset();
+	i2c_fake_corrupt_reads = 1;
+	check(charger_init() == 0, "a corrupt probe read means the part is not claimed");
+	check(i2c_fake_log_len <= 2, "and nothing beyond register pointers is written");
+
+	/* Corruption after a clean probe, i.e. during configuration. This is
+	 * the dangerous case: a read-modify-write of REG06 with a flipped
+	 * bit 5 would set FET_DIS and strand the board in shipping mode. */
+	device_reset();
+	i2c_fake_clean_first   = 2;   /* let the probe succeed */
+	i2c_fake_corrupt_reads = 8;
+	int r = charger_init();
+	check(r == 0, "init fails rather than proceeding on unverifiable reads");
+	check(!charger_present(), "and does not report the charger as present");
+	check((i2c_fake_reg[0x06] & 0x20) == 0,
+	      "FET_DIS still clear -- a corrupt read never becomes a corrupt write");
+
+	/*
+	 * Reading alone puts the part in host mode, where an unkicked watchdog
+	 * eventually drops the rail. Bailing out must not leave it there.
+	 */
+	int didreset = 0;
+	for (int i = 0; i < i2c_fake_log_len; i++)
+		if (i2c_fake_log_reg[i] == 0x02 && (i2c_fake_log_val[i] & 0x80))
+			didreset = 1;
+	check(didreset, "software reset issued, returning the part to default mode");
 
 	printf("\n== status decode ==\n");
 
