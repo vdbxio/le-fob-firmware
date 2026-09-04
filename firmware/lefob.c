@@ -209,7 +209,7 @@ int main(void)
 			 * states, so anything inside CHARGER_INT_MIN_GAP_MS rides
 			 * along with the chirp already sent.
 			 */
-			if (buttons_take_charger_int()) {
+			if (FOB_ENABLE_CHARGER_INT && buttons_take_charger_int()) {
 				if (power_rtc_elapsed_ms(t_last_interim, rtc) >=
 				    CHARGER_INT_MIN_GAP_MS) {
 					send           = 1;

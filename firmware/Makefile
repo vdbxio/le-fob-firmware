@@ -30,6 +30,7 @@ EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
 # Build knobs. Use these, not EXTRA_CFLAGS on the command line.
 #
 #   make CHARGER=0 flash        charger driver out
+#   make CHARGER_INT=0 flash    charger driver on, but no PA4 wake/chirp
 #   make SLEEP=0 flash          stay awake (bring-up)
 #   make RADIO=0 flash          no BLE (LED diagnostics)
 #   make PULLUPS=0 flash        no internal pull-ups on unused pins
@@ -50,6 +51,9 @@ EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
 # ---------------------------------------------------------------------------
 ifdef CHARGER
 EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER=$(CHARGER)
+endif
+ifdef CHARGER_INT
+EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER_INT=$(CHARGER_INT)
 endif
 ifdef SLEEP
 EXTRA_CFLAGS += -DFOB_SLEEP_ENABLE=$(SLEEP)

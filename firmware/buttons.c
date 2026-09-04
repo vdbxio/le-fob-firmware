@@ -335,11 +335,13 @@ void buttons_rearm(void)
 	 * re-armed on every wake. RB_SLP_GPIO_WAKE is port-wide, so enabling
 	 * the interrupt is what makes it a wake source.
 	 */
+#if FOB_ENABLE_CHARGER_INT
 	funPinMode(PIN_CHG_INT, GPIO_CFGLR_IN_PUPD);
 	R16_PA_INT_MODE |= CHG_INT_BIT;
 	R32_PA_CLR       = CHG_INT_BIT;
 	R16_PA_INT_IF    = CHG_INT_BIT;
 	R16_PA_INT_EN   |= CHG_INT_BIT;
+#endif
 
 	NVIC_EnableIRQ(GPIOA_IRQn);
 	NVIC_EnableIRQ(GPIOB_IRQn);

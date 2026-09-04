@@ -278,6 +278,18 @@
 #endif
 
 /*
+ * Arm PA4 (the charger INT) as a wake source and send an interim chirp on
+ * it. Separable from FOB_ENABLE_CHARGER so the two can be tested apart:
+ * the I2C/charger bring-up is one thing, adding a second edge-interrupt
+ * source on the GPIOA vector is another.
+ *
+ *     make CHARGER_INT=0 flash
+ */
+#ifndef FOB_ENABLE_CHARGER_INT
+#define FOB_ENABLE_CHARGER_INT 1
+#endif
+
+/*
  * How long to stay awake after a chirp before sleeping again. Button wakes
  * use FOB_IDLE_LINGER_MS, which is sized for a human between taps; a chirp
  * wake has no human in it and only needs the burst to finish.
