@@ -47,6 +47,28 @@ On the 120 mAh cell:
 Getting deep sleep working is worth roughly 35× — and it is entirely
 firmware. Nothing on the board needs to change for it.
 
+## Why it was not sleeping
+
+Two faults in the sleep path, found by inspection after the capture showed a
+`FOB_SLEEP_ENABLE=1` build sitting at the awake figure.
+
+**SysTick was never masked.** `WFI` returns on any *pending* interrupt, and
+SysTick fires at 1 kHz. So the chip entered deep sleep, was woken within a
+millisecond, ran the loop and slept again — a thousand times a second. That
+costs more than plain idling, and presents exactly as "sleep does nothing":
+the floor stays at the awake value. `power_sleep()` now masks SysTick and
+clears its pending flags before `WFI`, and restarts it after.
+
+**No RTC interrupt handler existed.** `SleepInit()` enables `RTC_IRQn`, and
+ch32fun's unhandled-interrupt default *spins forever*. `RTC_init()` arms a
+trigger at count 0 and the counter wraps daily, so the fob would have hung
+after about a day of running — and a pending RTC flag would equally have
+stopped `WFI` from ever sleeping. There is now a handler that clears the
+flag.
+
+The first is why the measurement looked the way it did. The second is a
+latent hang that the same review turned up.
+
 ## Next step
 
 Flash with sleep enabled and re-measure:
@@ -55,10 +77,12 @@ Flash with sleep enabled and re-measure:
 make clean && make EXTRA_CFLAGS="-ffreestanding -Iinclude -DFOB_SLEEP_ENABLE=1" && make flash
 ```
 
-The boot banner now states which build is running, so a capture cannot be
-misattributed. Expect the floor to fall from 3.64 mA to under 0.2 mA. If it
-does not move, the sleep branch is not being reached and `lefob.c` is where
-to look, not the board.
+The boot banner states which build is running, so a capture cannot be
+misattributed. Expect the floor to fall from 3.64 mA to under 0.2 mA.
+
+If it still does not move, the next thing to check is what else is pending
+when `WFI` runs — the radio's `LLE_IRQn` is the remaining enabled interrupt,
+and the same "returns immediately on anything pending" rule applies to it.
 
 ## Still unmeasured
 

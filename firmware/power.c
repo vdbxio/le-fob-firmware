@@ -97,8 +97,45 @@ uint32_t power_rtc_elapsed_ms(uint32_t from, uint32_t to)
 	return (uint32_t)(((uint64_t)ticks * 1000u) / 32768u);
 }
 
+/*
+ * The RTC trigger interrupt.
+ *
+ * SleepInit() enables this interrupt, and ch32fun's unhandled-interrupt
+ * default spins forever -- so without a handler here, the first RTC trigger
+ * hangs the fob. RTC_init() arms a trigger at count 0 and the counter wraps
+ * daily, so "the first trigger" is not hypothetical.
+ *
+ * Nothing needs doing beyond clearing the flag: this exists so a timed wake
+ * returns to the main loop rather than into a spin, and so the flag cannot
+ * sit pending and keep WFI from ever sleeping.
+ */
+void RTC_IRQHandler(void) __attribute__((interrupt));
+void RTC_IRQHandler(void)
+{
+	R8_RTC_FLAG_CTRL = RB_RTC_TRIG_CLR;
+}
+
 void power_sleep(void)
 {
+	/*
+	 * Mask SysTick first. This is the whole difference between sleeping
+	 * and not.
+	 *
+	 * WFI returns on any *pending* interrupt, enabled or not at the core.
+	 * SysTick fires at 1 kHz, so leaving it armed means the chip enters
+	 * deep sleep, is woken within a millisecond, runs the loop, and sleeps
+	 * again -- a thousand times a second. That costs more than simply
+	 * idling, and it looks exactly like "sleep does nothing": the measured
+	 * floor stays at the awake figure.
+	 *
+	 * Clearing the pending flags matters as much as masking: a SysTick
+	 * that already fired would otherwise be waiting to return WFI
+	 * immediately.
+	 */
+	SysTick->CTLR &= ~SYSTICK_CTLR_STIE;
+	SysTick->SR    = 0;
+	NVIC_ClearPendingIRQ(SysTick_IRQn);
+
 	/*
 	 * No RTC alarm is set, so a button edge is the only thing that can
 	 * wake us. RB_SLP_GPIO_WAKE was armed in buttons_init().
@@ -111,4 +148,13 @@ void power_sleep(void)
 
 	if (!FOB_DISABLE_RADIO)
 		ble_adv_resume();
+
+	/*
+	 * Restart the millisecond tick. g_millis did not advance while we were
+	 * out -- SysTick is clocked from HCLK, which stopped -- so everything
+	 * timed against it resumes where it left off rather than jumping.
+	 */
+	SysTick->SR    = 0;
+	SysTick->CMP   = SysTick->CNT + (FUNCONF_SYSTEM_CORE_CLOCK / 1000);
+	SysTick->CTLR |= SYSTICK_CTLR_STIE;
 }
