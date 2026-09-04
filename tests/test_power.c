@@ -37,8 +37,10 @@ SysTick_Type *SysTick = &systick_storage;
 /* power.c calls these on wake; not under test here beyond being called. */
 void ble_adv_resume(void) {}
 
-int g_rearm_calls;
+int g_rearm_calls, g_ws2812_init_calls;
 void buttons_rearm(void) { g_rearm_calls++; }
+void ws2812_init(void)   { g_ws2812_init_calls++; }
+void ws2812_show(const unsigned char *grb, int n) { (void)grb; (void)n; }
 
 /* Defined in power.c; declared here because it is an interrupt handler and
  * so has no place in a public header. */
@@ -123,12 +125,18 @@ int main(void)
 	 * sleeping has to be put back. Missing this looks like a fob that
 	 * wakes once or twice and then stops.
 	 */
-	R8_SLP_WAKE_CTRL = 0;
-	g_rearm_calls    = 0;
+	R8_SLP_WAKE_CTRL    = 0;
+	g_rearm_calls       = 0;
+	g_ws2812_init_calls = 0;
+	R8_SLP_POWER_CTRL   = 0;
 	power_sleep();
+
 	check(R8_SLP_WAKE_CTRL & RB_SLP_GPIO_WAKE,
 	      "GPIO wake re-armed on the way out of sleep");
-	check(g_rearm_calls == 1, "button interrupts re-armed too");
+	check(g_rearm_calls == 1,
+	      "button pad modes and interrupts re-armed");
+	check(g_ws2812_init_calls == 1,
+	      "WS2812 data pin put back to an output");
 
 	printf("\n== RTC handler clears its flag ==\n");
 

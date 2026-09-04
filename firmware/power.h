@@ -23,6 +23,13 @@ void power_init(void);
 void power_arm_gpio_wake(void);
 
 /*
+ * Re-apply the pin configuration power_init() established. Called on every
+ * wake, because waking partially resets the chip and it is cheaper to put
+ * everything back than to work out what survived.
+ */
+void power_apply_pin_config(void);
+
+/*
  * Deep sleep until a button edge. Returns once awake, with the clocks and
  * the radio restored.
  *

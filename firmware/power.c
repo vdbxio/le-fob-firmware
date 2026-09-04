@@ -4,6 +4,7 @@
 #include "ble_adv.h"
 #include "led_anim.h"
 #include "buttons.h"
+#include "ws2812.h"
 
 #include "ch5xx_lowpower.h"
 
@@ -27,7 +28,7 @@
  * is how a device signals attach, and this firmware has no USB stack to
  * answer with.
  */
-static void quiesce_unused_pins(void)
+void power_apply_pin_config(void)
 {
 	/* Gates of the dual N-FET. Board pull-downs already hold these off;
 	 * driving them low is explicitness, not a fix. */
@@ -127,7 +128,7 @@ void power_init(void)
 	RTC_init();   /* zero the counters, enable the trigger */
 	SleepInit();  /* arm RTC wake and its interrupt */
 
-	quiesce_unused_pins();
+	power_apply_pin_config();
 	power_arm_gpio_wake();
 }
 
@@ -203,17 +204,23 @@ void power_sleep(void)
 	                 RB_PWR_MUST_0010);
 
 	/*
-	 * Waking from sleep generates a partial reset -- the datasheet is
-	 * explicit that it is "a selective reset of the registers that are
-	 * powered down in sleep mode". Anything configured before sleeping has
-	 * to be assumed gone, so the wake source and the button interrupts it
-	 * listens to are re-armed on every wake rather than only at boot.
+	 * Waking generates a partial reset -- the datasheet calls it "a
+	 * selective reset of the registers that are powered down in sleep
+	 * mode" and does not enumerate which. Rather than reason about what
+	 * survives, put all of it back: it costs a few microseconds and it
+	 * removes the question.
 	 *
-	 * Getting this wrong looks like a fob that wakes once or twice and
-	 * then never again.
+	 * An earlier version restored only the interrupt registers, leaving
+	 * pin modes alone, and the result was a fob that slept beautifully
+	 * until the first press and was never right afterwards -- no LED
+	 * output at all, because PB7 was no longer an output, and a thrash of
+	 * short sleeps averaging 575 uA because floating inputs and unarmed
+	 * pins kept waking it.
 	 */
+	power_apply_pin_config();  /* quiescing, FET gates, I2C idle state */
+	buttons_rearm();           /* pad modes and their edge interrupts   */
+	ws2812_init();             /* PB7 back to an output, chain reset     */
 	power_arm_gpio_wake();
-	buttons_rearm();
 
 	/* The DC-DC is switched off across sleep and the radio comes back in
 	 * an undefined state; both have to be re-established before use. */

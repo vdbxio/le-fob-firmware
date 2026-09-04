@@ -280,6 +280,15 @@ void GPIOB_IRQHandler(void)
 void buttons_rearm(void)
 {
 	/*
+	 * Pin modes first. These are re-applied rather than left to
+	 * buttons_init() because a wake may have reset them, and a pad that
+	 * has lost its pull-up floats -- which reads as a stuck button, wakes
+	 * the chip immediately, and draws crossbar current while it does.
+	 */
+	for (int i = 0; i < NUM_BUTTONS; i++)
+		funPinMode(btn_hw[i].pin, GPIO_CFGLR_IN_PUPD);
+
+	/*
 	 * Route interrupt lines INT24/INT25 to the PB22/PB23 pads. Without
 	 * this they sit on PB8/PB9, which do not exist on the QFN-32 package,
 	 * and SW1 and SW3 would never raise an interrupt.
@@ -308,9 +317,6 @@ void buttons_rearm(void)
 
 void buttons_init(void)
 {
-	for (int i = 0; i < NUM_BUTTONS; i++)
-		funPinMode(btn_hw[i].pin, GPIO_CFGLR_IN_PUPD);
-
 	buttons_rearm();
 
 	/* Seed the debounced state from the real pin levels, so a button held
