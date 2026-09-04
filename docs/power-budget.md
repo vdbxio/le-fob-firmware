@@ -69,6 +69,13 @@ flag.
 The first is why the measurement looked the way it did. The second is a
 latent hang that the same review turned up.
 
+> **The 40 nA figure below is not a valid measurement.** It was taken with
+> the bench supply mis-wired to the battery terminals, so it measured
+> something other than a sleeping fob. Both it and the 3.64 mA capture above
+> need retaking before any conclusion about sleep is drawn — the sleep and
+> wake fixes stand on their own reasoning but remain **unverified on
+> hardware**.
+
 ### Then it slept, and would not wake
 
 With those fixed the floor fell to **40 nA average** — and no button could
