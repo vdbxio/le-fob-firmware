@@ -67,6 +67,23 @@ will be carrying 3.33 MHz SPI edges. Route it away from the antenna feed and
 its keepout — PB7 (pad 17) is on the opposite side of the package, so this is
 a constraint the current layout never had to satisfy.
 
+## Detail 3 — there is no reset once a battery is fitted
+
+The ROM bootloader samples BOOT (SW1 / PB22) only at reset, and with a
+battery in place plugging USB is not a reset. Firmware now covers this (hold
+SW1 for 5 s and the app jumps to the bootloader itself — see `firmware/isp.h`),
+but that only helps while the app is alive. Bricked firmware, a hard fault, a
+wedged sleep: none of those can be recovered without pulling the battery.
+
+Cheap fixes for the respin, pick one:
+
+- A test point or 1 mm pad pair on **RST# / PB23** so a tweezer-short is a
+  reset. Costs nothing; PB23 is already SW3, so it would have to be a
+  separate net only if SW3 stays a button.
+- A VBUS-rise pulse into RST# (RC + small-signal FET, or a supervisor with a
+  manual-reset input). Makes plugging USB a reset again, so the original
+  hold-and-plug gesture works with a battery fitted.
+
 ## Validate before committing the layout
 
 PA14 already reaches CON1 pin 2 on the **current** board. Jumper CON1 pin 2 to

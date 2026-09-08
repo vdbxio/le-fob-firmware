@@ -146,6 +146,13 @@ void led_anim_set_tx(int button)
 	tx_button = (int8_t)button;
 }
 
+static uint8_t arming;
+
+void led_anim_set_arming(uint8_t progress)
+{
+	arming = progress;
+}
+
 void led_anim_trigger(uint8_t button, uint8_t event, uint32_t now)
 {
 	if (button >= WS2812_COUNT)
@@ -242,6 +249,20 @@ void led_anim_tick(uint32_t now)
 		 */
 		uint8_t anim_lvl = anim_level(&anim[i], now);
 
+		if (arming) {
+			/*
+			 * Bootloader fuse: pad i lights once progress has crossed
+			 * its share of the window, so the four fill in SW1..SW4.
+			 * Everything else is hidden while this is up.
+			 */
+			int lit = (arming * WS2812_COUNT) > (i * 255);
+
+			fb[i * 3 + 0] = lit ? scale(colour_white[1], TX_LEVEL) : 0;
+			fb[i * 3 + 1] = lit ? scale(colour_white[0], TX_LEVEL) : 0;
+			fb[i * 3 + 2] = lit ? scale(colour_white[2], TX_LEVEL) : 0;
+			continue;
+		}
+
 		if (anim[i].kind != ANIM_IDLE) {
 			/* Gesture owns the pixel, including its dark phases. */
 			uint8_t c[3] = { anim[i].r, anim[i].g, anim[i].b };
@@ -312,6 +333,7 @@ void led_anim_all_off(void)
 	pressed_mask = 0;
 	tx_button    = -1;
 	tx_suppress  = 0;
+	arming       = 0;
 
 	memset(fb, 0, sizeof(fb));
 	memcpy(fb_shadow, fb, sizeof(fb));

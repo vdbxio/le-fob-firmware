@@ -45,6 +45,25 @@ some other way.
 enters ISP mode rather than running this firmware. That is the flashing
 gesture; in normal operation PB22 is just button 1.
 
+**…but only at reset.** The ROM samples BOOT once, when the chip comes up.
+With no battery, plugging USB *is* a power-up, so hold-and-plug works. With a
+battery fitted the chip never loses power, USB does not reset it, and the
+hold does nothing — the running app just sees button 1 go down. So the app
+provides its own way in:
+
+**Hold SW1 alone for 5 seconds.** From 2 s the pads fill in white one at a
+time (SW1 → SW4) as a warning; let go and nothing happens. At 5 s all four
+flash white and the app jumps into the ROM bootloader, exactly as if it had
+been reset with SW1 down. Then `make flash` as usual.
+
+The jump is refused — three red flashes — if the charger reports no USB,
+because the bootloader is useless without it and the only way back out is a
+reset. If the charger driver is off or not answering, the check is skipped.
+Knobs: `ISP_HOLD_MS=` and `ISP_REQUIRE_USB=0`.
+
+If the firmware on the board predates this gesture, disconnect the battery
+once and use hold-and-plug.
+
 ## Build and flash
 
 ```bash
@@ -82,6 +101,37 @@ reflashing.
 
 > If minichlink warns *"you have debug enabled… Proceeding will only erase
 > the flash"*, stop and re-run — continuing erases without programming.
+
+### Build knobs
+
+All of these are `make VAR=value flash` (always with `make clean` first if
+you are changing one — the knob is baked into every object). Defaults are in
+`firmware/board.h`, with the reasoning next to each.
+
+| Knob | Default | What it does |
+|---|---|---|
+| `SLEEP=0` | 1 | Stay awake instead of deep-sleeping between events |
+| `CHIRP_MS=2000` | 60000 | Status chirp interval; `0` disables timed wakes |
+| `CHIRP_TEXT=0` | 1 | Chirp carries the button frame instead of the status text |
+| `CHARGER=0` / `CHARGER_INT=0` | 1 / 1 | Charger driver / charger INT pin |
+| `RADIO=0` | on | No transmissions at all (LED diagnostic build) |
+| `TXPOWER=4` | 7 | Transmit power in dBm, −25 … +7 |
+| `ROUNDS=12` | 20 | Repeats per burst, presses and chirps alike |
+| `BURST_MS=1200` | 1200 | Time on air; the repeats are spread evenly across it |
+| `HSE_CAP=12` | chip reset | 32 MHz crystal load trim in pF, even values 10–24 |
+| `ISP_HOLD_MS=` / `ISP_REQUIRE_USB=0` | 5000 / 1 | Bootloader gesture length / VBUS check |
+| `SETTLE_US=` / `PULLUPS=` | 250 / — | Wake settling delay / quiesce mode for unused pins |
+
+**Delivery-rate rig.** The packet id in Home Assistant counts every burst, so
+a fast chirp with sleep off is a direct measurement of how many land:
+
+```bash
+make clean && make SLEEP=0 CHIRP_MS=2000 flash
+```
+
+Export the packet-id history for a couple of minutes; received ÷ (last −
+first + 1) is the delivery rate. Change one knob at a time and re-run. The
+banner also prints the crystal trim the chip is actually using (`xtal`).
 
 ## Console
 
@@ -160,7 +210,7 @@ the lower layers cannot fight its blink pattern.
 gesture, and the gesture pattern runs concurrently with the burst — so that
 pattern already *is* the on-air indication, and the white glow is suppressed
 on that pad. Without the suppression a single tap would show a stray white
-tick, because one blink is 210 ms against a 240 ms burst. What is left is the
+tick, because one blink is 210 ms against a 1.2 s burst. What is left is the
 case the layer is for: a chirp with no gesture behind it. There are none yet
 — battery or status chirps would be the first — so on current firmware the
 white glow is unused by design, and wired up ready.

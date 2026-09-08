@@ -117,6 +117,22 @@ void power_init(void)
 	 */
 	DCDCEnable();
 
+#if FOB_HSE_CAP_PF
+	/*
+	 * Crystal load trim (see board.h). The register holds (pF - 10) / 2 in
+	 * bits 6:4; the bias bits below it are left as they are. Applied
+	 * before anything RF runs and never touched again -- the setting
+	 * survives sleep with the rest of the always-on domain.
+	 */
+	_Static_assert(FOB_HSE_CAP_PF >= 10 && FOB_HSE_CAP_PF <= 24 &&
+	               (FOB_HSE_CAP_PF % 2) == 0,
+	               "FOB_HSE_CAP_PF must be an even value from 10 to 24");
+	SYS_SAFE_ACCESS(
+		R8_XT32M_TUNE = (uint8_t)((R8_XT32M_TUNE & ~RB_XT32M_C_LOAD) |
+		                          (((FOB_HSE_CAP_PF - 10) / 2) << 4));
+	);
+#endif
+
 	/*
 	 * Run the 32 kHz domain from the internal LSI rather than the LSE
 	 * crystal. X2 is fitted, so LSE is available and would be more

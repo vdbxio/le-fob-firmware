@@ -34,7 +34,10 @@ test_chirp : test_chirp.c ../firmware/chirp.c
 test_status : test_status.c ../firmware/status.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status
+test_isp : test_isp.c ../firmware/isp.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp
 	./test_bthome
 	./test_buttons
 	./test_leds
@@ -42,6 +45,7 @@ run : test_bthome test_buttons test_leds test_power test_charger test_chirp test
 	./test_charger
 	./test_chirp
 	./test_status
+	./test_isp
 
 clean :
-	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status *.dSYM
+	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp *.dSYM

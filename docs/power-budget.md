@@ -35,7 +35,47 @@ lifetime and 5 min costs five percent. The interval is a product decision
 about how stale a status may be, not a battery one — the earlier estimate
 treating a chirp like a press overstated it by an order of magnitude.
 
-### Projected life, 120 mAh cell
+### 2026-09-08 — the burst got five times longer; this table is stale
+
+Delivery measured with 2 s chirps and Home Assistant's packet-id history
+(several proxies within a few feet):
+
+| burst | on air | delivered |
+|---|---|---|
+| 12 rounds × 20 ms | 240 ms | 31–36% |
+| 60 rounds × 20 ms, +6 dBm | 1.2 s | 96% |
+| 60 rounds × 20 ms, +7 dBm | 1.2 s | 98–99% |
+
+Misses at 240 ms came in runs of up to 14 bursts: the whole burst fits in
+one scan interval, so a window that misses takes every repeat with it. The
+1.2 s span is now the default for presses and chirps alike. A follow-up run
+at 12 rounds over the same 1.2 s (100 ms apart) also landed fine at these
+receivers (ESPHome proxies at defaults plus the HA host's BlueZ adapter),
+so the default round count is 20, a 60 ms gap, rather than 60.
+
+**Projected cost, not yet measured.** The chirp above was ~100 ms awake for
+0.13 µAh, i.e. ~4.7 mA while awake. Radio airtime is ~1 ms per round, so
+sixty rounds at +7 dBm add only ~0.2 µAh; the price is 1.2 s awake instead
+of 0.1 s:
+
+| | per event | 60 s chirp, /day | 5 min chirp, /day |
+|---|---|---|---|
+| chirp, 4 rounds (measured) | 0.13 µAh | 186 µAh | 37 µAh |
+| chirp, 60 rounds (projected) | ~1.8 µAh | ~2600 µAh | ~520 µAh |
+| press (projected) | ~3.3 µAh | | |
+
+Against the 684 µAh/day floor: a 60 s chirp now costs four floors a day
+(dev only), and the 5 min production interval costs three-quarters of a
+floor — roughly 100 days on the 120 mAh cell instead of 166.
+
+**The way to get most of it back** is to sleep between rounds instead of
+idling: the RTC can wake the chip every 20 ms, and the burst becomes sixty
+short wakes at the ~36 µA floor rather than 1.2 s at ~5 mA. Each wake
+re-initialises the radio (a few hundred µs), so the projected chirp comes
+back down to a few tenths of a µAh. Not done yet; needs the PPK on it
+before and after.
+
+### Projected life, 120 mAh cell (12-round burst; superseded above)
 
 | presses / day | days |
 |---|---|

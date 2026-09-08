@@ -28,11 +28,13 @@
 #include "bthome.h"
 #include "buttons.h"
 #include "led_anim.h"
+#include "ws2812.h"
 #include "ble_adv.h"
 #include "power.h"
 #include "charger.h"
 #include "chirp.h"
 #include "status.h"
+#include "isp.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
  * SysTick ISR. */
@@ -82,6 +84,20 @@ static void banner(void)
 	       m[5], m[4], m[3], m[2], m[1], m[0],
 	       ble_adv_mac_is_random() ? "random static" : "factory");
 	printf("name   %s\n", BTHOME_NAME);
+	printf("radio  tx %+d dBm, %d rounds over %d ms (every %d ms)\n",
+	       BLE_TX_POWER_DBM, ADV_BURST_ROUNDS, ADV_BURST_MS,
+	       ADV_ROUND_INTERVAL_MS);
+	printf("isp    hold SW1 %d ms%s\n", ISP_HOLD_MS,
+	       FOB_ISP_REQUIRE_USB ? " (USB must be present)" : "");
+	{
+		/* Crystal load trim as the chip is actually running it: the
+		 * register encodes (pF - 10) / 2 in bits 6:4. */
+		uint8_t tune = R8_XT32M_TUNE;
+		printf("xtal   tune 0x%02X = %d pF load, bias %d%s\n", tune,
+		       10 + 2 * ((tune & RB_XT32M_C_LOAD) >> 4),
+		       tune & RB_XT32M_I_BIAS,
+		       FOB_HSE_CAP_PF ? " (set by FOB_HSE_CAP_PF)" : " (reset value)");
+	}
 	printf("pads   SW1 PB22 | SW2 PB4 | SW3 PB23 | SW4 PA9\n");
 	printf("pixels %d on PB7 (PIXEL0)\n", WS2812_COUNT);
 
@@ -118,6 +134,63 @@ static void banner(void)
 	 */
 	printf("note   SW3/PB23 needs 'make disable-reset' once per board,\n");
 	printf("       otherwise it resets instead of reporting.\n\n");
+}
+
+/* Every pad the same colour, pushed straight to the chain, bypassing the
+ * animation engine: this is the last thing the app draws. */
+static void pads_solid(uint8_t r, uint8_t g, uint8_t b)
+{
+	uint8_t grb[WS2812_COUNT * 3];
+
+	for (int i = 0; i < WS2812_COUNT; i++) {
+		grb[i * 3 + 0] = g;
+		grb[i * 3 + 1] = r;
+		grb[i * 3 + 2] = b;
+	}
+	ws2812_show(grb, WS2812_COUNT);
+}
+
+/*
+ * The SW1 hold has run its course: hand the chip to the ROM bootloader.
+ *
+ * jump_isprom() copies the ROM into RAM, patches out its own BOOT-pin
+ * check, and mret's into it, so from here the chip is in ISP mode exactly
+ * as if it had been reset with SW1 down -- which is the thing a battery
+ * stops USB from doing (see isp.h).
+ */
+static void isp_enter(void)
+{
+	const uint8_t v = (uint8_t)((255 * PAD_LED_BRIGHTNESS_PCT) / 100);
+
+#if FOB_ISP_REQUIRE_USB && FOB_ENABLE_CHARGER
+	charger_status_t cs;
+
+	if (charger_read(&cs) && cs.valid && !cs.power_good) {
+		printf("isp    refused: charger reports no USB\n");
+		for (int i = 0; i < 3; i++) {
+			pads_solid(v, 0, 0);
+			Delay_Ms(80);
+			pads_solid(0, 0, 0);
+			Delay_Ms(80);
+		}
+		led_anim_invalidate();
+		return;
+	}
+#endif
+
+	printf("isp    jumping to bootloader\n");
+	pads_solid(v, v, v);
+	Delay_Ms(150);
+	pads_solid(0, 0, 0);
+
+	/* Nothing of ours may fire once the bootloader has the vector table. */
+	SysTick->CTLR = 0;
+	NVIC_DisableIRQ(SysTick_IRQn);
+	NVIC_DisableIRQ(GPIOA_IRQn);
+	NVIC_DisableIRQ(GPIOB_IRQn);
+	NVIC_DisableIRQ(RTC_IRQn);
+
+	jump_isprom();
 }
 
 int main(void)
@@ -180,6 +253,11 @@ int main(void)
 			 */
 			led_anim_set_pressed(buttons_pressed_mask());
 			led_anim_set_tx(FOB_DISABLE_RADIO ? -1 : ble_adv_tx_button());
+
+			/* SW1 held alone long enough -> bootloader (see isp.h). */
+			if (isp_hold_tick(buttons_pressed_mask(), now))
+				isp_enter(); /* returns only if it refused */
+			led_anim_set_arming(isp_hold_progress());
 
 			led_anim_tick(now);
 

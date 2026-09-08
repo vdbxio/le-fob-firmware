@@ -27,3 +27,4 @@
 /tests/test_charger
 /tests/test_chirp
 /tests/test_status
+/tests/test_isp

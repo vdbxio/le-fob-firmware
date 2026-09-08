@@ -34,6 +34,14 @@ void led_anim_set_pressed(uint8_t mask);
 /* Pad whose advertising burst is on air, or -1 when the radio is idle. */
 void led_anim_set_tx(int button);
 
+/*
+ * Bootloader-hold "fuse", from isp_hold_progress(): 0 = off, otherwise
+ * 1..255 fills the pads in one at a time. While nonzero this layer owns the
+ * whole chain -- gestures, TX and press glow are all hidden -- so there is
+ * no mistaking it for anything else.
+ */
+void led_anim_set_arming(uint8_t progress);
+
 /* Recompute and, if anything changed, push a frame. Cheap to call every
  * millisecond; it rate-limits its own refreshes internally. */
 void led_anim_tick(uint32_t now);

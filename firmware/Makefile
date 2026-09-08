@@ -11,6 +11,7 @@ ADDITIONAL_C_FILES := \
 	charger.c \
 	chirp.c \
 	status.c \
+	isp.c \
 	libc_shim.c
 
 CH32FUN := ../ch32fun/ch32fun
@@ -73,6 +74,31 @@ EXTRA_CFLAGS += -DCHIRP_INTERVAL_MS=$(CHIRP_MS)
 endif
 ifdef SETTLE_US
 EXTRA_CFLAGS += -DFOB_WAKE_SETTLE_US=$(SETTLE_US)
+endif
+# Transmit power in dBm: one of -25 -20 -15 -10 -8 -5 -3 -1 0 1 2 3 4 5 6 7
+# (the LL_TX_POWER_* table in ch5xxhw.h). `make TXPOWER=7 flash`.
+ifdef TXPOWER
+EXTRA_CFLAGS += -DBLE_TX_POWER=LL_TX_POWER_$(subst -,MINUS_,$(TXPOWER))_DBM \
+                -DBLE_TX_POWER_DBM=$(TXPOWER)
+endif
+# Burst shape: how many repeats, spread evenly over how long (ms). The gap
+# between repeats is derived. `make ROUNDS=12 BURST_MS=1200 flash`.
+ifdef ROUNDS
+EXTRA_CFLAGS += -DADV_BURST_ROUNDS=$(ROUNDS)
+endif
+ifdef BURST_MS
+EXTRA_CFLAGS += -DADV_BURST_MS=$(BURST_MS)
+endif
+# 32 MHz crystal load trim in pF (even, 10..24); see board.h.
+ifdef HSE_CAP
+EXTRA_CFLAGS += -DFOB_HSE_CAP_PF=$(HSE_CAP)
+endif
+# Bootloader-entry hold length (ms), and whether it insists on VBUS.
+ifdef ISP_HOLD_MS
+EXTRA_CFLAGS += -DISP_HOLD_MS=$(ISP_HOLD_MS)
+endif
+ifdef ISP_REQUIRE_USB
+EXTRA_CFLAGS += -DFOB_ISP_REQUIRE_USB=$(ISP_REQUIRE_USB)
 endif
 
 all : $(TARGET).bin

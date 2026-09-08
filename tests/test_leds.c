@@ -158,6 +158,30 @@ int main(void)
 	led_anim_set_tx(-1);
 	render(50);
 
+	printf("\n== bootloader fuse outranks everything ==\n");
+
+	/* A gesture on pad 0 and a burst on pad 1 are both up; the fuse must
+	 * hide both and show only its own fill, SW1 first. */
+	led_anim_trigger(0, BTHOME_EVT_PRESS, now);
+	led_anim_set_tx(1);
+	led_anim_set_arming(1);
+	render(30);
+	check(lit(0) && R(0) && G(0) && B(0), "first pad white at the start of arming");
+	check(!lit(1) && !lit(2) && !lit(3), "other pads dark, burst glow hidden");
+
+	led_anim_set_arming(128);
+	render(30);
+	check(lit(0) && lit(1) && lit(2) && !lit(3), "three pads at half way");
+
+	led_anim_set_arming(255);
+	render(30);
+	check(lit(0) && lit(1) && lit(2) && lit(3), "all four at the end");
+
+	led_anim_set_arming(0);
+	led_anim_set_tx(-1);
+	render(400); /* the pad-0 gesture has long finished by now */
+	check(all_dark(), "letting go restores the normal layers");
+
 	printf("\n== brightness ceiling ==\n");
 
 	/*

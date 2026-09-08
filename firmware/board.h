@@ -134,6 +134,35 @@
 #endif
 
 /* ------------------------------------------------------------------ */
+/* Bootloader entry from the running app (see isp.h)                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Hold SW1 alone this long and the app jumps to the ROM bootloader. Far
+ * past the hold_press gesture, so a deliberate hold is unmistakable (ms).
+ */
+#ifndef ISP_HOLD_MS
+#define ISP_HOLD_MS 5000
+#endif
+
+/* From here until ISP_HOLD_MS the pads fill in one by one as a warning:
+ * let go and nothing happens (ms). */
+#ifndef ISP_ARM_MS
+#define ISP_ARM_MS 2000
+#endif
+
+/*
+ * Only jump if the charger reports VBUS present. The bootloader is useless
+ * without USB and, once in it, the only way out is a reset -- which on a
+ * battery-powered board means pulling the battery. When the charger driver
+ * is off or not answering the check is skipped, so you can never be locked
+ * out of flashing by a dead charger.
+ */
+#ifndef FOB_ISP_REQUIRE_USB
+#define FOB_ISP_REQUIRE_USB 1
+#endif
+
+/* ------------------------------------------------------------------ */
 /* AW32001 battery charger, on the shared I2C bus                     */
 /* ------------------------------------------------------------------ */
 #define PIN_I2C_SDA PB14   /* pad 12 */
@@ -204,37 +233,120 @@
  * Home Assistant shows when it discovers the fob. */
 #define BTHOME_NAME "le-fob"
 
-#define BLE_TX_POWER LL_TX_POWER_0_DBM
+/*
+ * Transmit power. The CH592 radio goes from -25 up to +7 dBm; iSLER's
+ * LL_TX_POWER_* table in ch5xxhw.h has the register values. The cost is
+ * only paid on air -- a 12-round burst is ~15 ms of it -- so even the top
+ * setting is invisible next to the sleep floor. Override with
+ *
+ *     make TXPOWER=7 flash      (or TXPOWER=-5, etc.)
+ *
+ * BLE_TX_POWER_DBM is the same number in human units, for the banner.
+ */
+#ifndef BLE_TX_POWER
+#define BLE_TX_POWER     LL_TX_POWER_7_DBM /* measured: 96% -> 99% over +6 */
+#define BLE_TX_POWER_DBM 7
+#endif
+#ifndef BLE_TX_POWER_DBM
+#define BLE_TX_POWER_DBM 0 /* unknown: BLE_TX_POWER was set by hand */
+#endif
 
 /*
  * A BTHome event is a one-shot: there is no state for a receiver to catch up
  * on later, so a dropped advertisement is a dropped button press. We send the
  * same packet ID this many times across all three advertising channels to
  * make that unlikely. Receivers de-duplicate on the packet ID.
+ *
+ * Measured (2 s chirps, sleep off, Home Assistant packet-id history;
+ * receivers are ESPHome proxies at default scan settings plus the HA
+ * host's own BlueZ adapter, all within a few feet):
+ *
+ *     12 rounds over  240 ms     31-36% delivered
+ *     60 rounds over 1200 ms     96-99% delivered
+ *     12 rounds over 1200 ms     fine
+ *
+ * Misses at 240 ms came in runs of up to 14 consecutive bursts. A scanner
+ * listens in windows, and a burst that fits inside one scan interval
+ * either straddles a window or loses every repeat together. Spanning
+ * several intervals gives each its own chance. This is why real BTHome
+ * buttons advertise for a second or more.
+ *
+ * The third row says the gap between repeats is not the constraint at
+ * these receivers: 100 ms apart still lands. 20 is a middle setting, 60 ms
+ * apart, chosen by the owner; it leaves margin without paying for 60.
+ *
+ * Cost: airtime itself is trivial (~1 ms per round). Until the chip sleeps
+ * between rounds the price is being awake for ADV_BURST_MS per burst, and
+ * once it does, the price becomes per-round -- which is when this number
+ * starts to matter for battery; see docs/power-budget.md.
  */
 #ifndef ADV_BURST_ROUNDS
-#define ADV_BURST_ROUNDS 12
+#define ADV_BURST_ROUNDS 20
 #endif
 
-/* Gap between rounds of the burst (ms). */
-#ifndef ADV_ROUND_INTERVAL_MS
-#define ADV_ROUND_INTERVAL_MS 20
+/*
+ * How long the whole burst is on air (ms). The rounds are spread evenly
+ * across it, so the gap between repeats is derived, not set: 60 rounds
+ * over 1200 ms is one every 20 ms; 12 over 1200 ms is one every 100 ms.
+ *
+ * Two different receivers care about the two numbers. The span has to
+ * cover several of the scanner's intervals (that is the 36% -> 98% fix
+ * above). The gap has to be shorter than the scanner's listening window,
+ * or a window can open and close between two repeats -- so thinning the
+ * burst is safe only up to whatever window your proxies use. Test before
+ * trusting a longer gap:
+ *
+ *     make ROUNDS=12 BURST_MS=1200 SLEEP=0 CHIRP_MS=2000 flash
+ */
+#ifndef ADV_BURST_MS
+#define ADV_BURST_MS 1200
+#endif
+
+/* Derived: gap between rounds (ms). Not a knob. */
+#define ADV_ROUND_INTERVAL_MS (ADV_BURST_MS / ADV_BURST_ROUNDS)
+
+_Static_assert(ADV_BURST_ROUNDS >= 1, "ADV_BURST_ROUNDS must be at least 1");
+_Static_assert(ADV_ROUND_INTERVAL_MS >= 2,
+               "ADV_BURST_MS / ADV_BURST_ROUNDS is under 2 ms: a round is ~1 ms of airtime");
+
+/*
+ * 32 MHz crystal load capacitance, in pF, applied through the chip's
+ * internal tuning caps (R8_XT32M_TUNE). 0 leaves the reset value alone.
+ *
+ * Why it is here: the carrier is derived from this crystal, and a load
+ * mismatch pulls it off frequency in proportion. BLE receivers tolerate
+ * roughly +/-150 kHz, which at 2.4 GHz is ~60 ppm; a crystal seeing the
+ * wrong load can miss by that much, and the symptom is exactly "some
+ * packets decode, most do not" with no firmware change making a
+ * difference. Sweep it with the 2 s chirp test and watch delivery:
+ *
+ *     make HSE_CAP=12 SLEEP=0 CHIRP_MS=2000 flash
+ *
+ * Even values 10..24 only (the register steps in 2 pF from 10).
+ *
+ * Status: the board has no external caps on either crystal, so the internal
+ * trim is the whole load and the reset value is what WCH intend. The
+ * delivery problem turned out to be burst length, not frequency (see
+ * ADV_BURST_ROUNDS); this knob stays for the day a board disagrees.
+ */
+#ifndef FOB_HSE_CAP_PF
+#define FOB_HSE_CAP_PF 0
 #endif
 
 /*
  * Rounds for the periodic status chirp. Matches the button burst.
  *
  * It was 4, on the reasoning that a missed chirp is repaired by the next
- * one. On hardware that was wrong: a connectionless advertisement only
- * lands when it overlaps the receiver's scan window, so landing odds scale
- * with airtime. A 12-round press ("questionable but mostly there") lands;
- * a 4-round chirp landed about one time in six, which at a 60 s interval is
- * a gap of minutes -- past Home Assistant's availability timeout. The chirp
- * is the availability signal and, unlike a press, cannot be retried by a
- * human, so if anything it wants at least as much airtime as a press.
+ * one. That was wrong for the reason above: a short burst either straddles
+ * a scan window or it does not, and at 4 rounds it mostly did not (about
+ * one in six landed). The chirp is the availability signal and, unlike a
+ * press, cannot be retried by a human, so it gets the same burst a press
+ * does. At a 5 min production interval, three misses in a row -- what it
+ * takes to go "unavailable" -- is now a once-in-years event rather than a
+ * daily one.
  */
 #ifndef ADV_HEARTBEAT_ROUNDS
-#define ADV_HEARTBEAT_ROUNDS 12
+#define ADV_HEARTBEAT_ROUNDS ADV_BURST_ROUNDS
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -244,11 +356,11 @@
  * How often the fob wakes on its own to advertise, with no button pressed.
  *
  * Measured 2026-09-04 at 4 heartbeat rounds: ~100 ms awake, ~0.13 uAh.
- * ADV_HEARTBEAT_ROUNDS is now 12, so a chirp is longer -- on the order of
- * a button press's burst but with no LED animation, so perhaps ~0.3 uAh;
- * this wants re-measuring. Even at 0.3 uAh the interval dominates only
- * loosely. Against a 28.5 uA floor on the 120 mAh cell (numbers below are
- * the old 4-round figures and slightly optimistic now):
+ * The chirp now uses the full ADV_BURST_MS burst, which is awake time, so
+ * it is projected at ~1.8 uAh until the chip sleeps between rounds (see
+ * docs/power-budget.md). The table below is the old 4-round measurement,
+ * kept as the floor a sleeping burst should get back to. Against a
+ * 28.5 uA floor on the 120 mAh cell:
  *
  *      interval   chirps/day   uAh/day   days
  *        30 s        2880        372      163   (floor alone is 684)
