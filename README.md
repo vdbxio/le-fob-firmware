@@ -6,7 +6,6 @@
 [![built on ch32fun](https://img.shields.io/badge/built%20on-ch32fun-orange)](https://github.com/cnlohr/ch32fun)
 [![tests: 11 host suites](https://img.shields.io/badge/tests-11%20host%20suites-success)](#tests)
 [![vibe coded](https://img.shields.io/badge/vibe%20coded-with%20Claude-d97757?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
-[![Supercon 2026](https://img.shields.io/badge/handed%20out%20at-Supercon%202026-black)](https://hackaday.io/superconference/)
 
 Four-button BLE fob on a WCH **CH592X** (QFN-32). Each pad broadcasts
 [BTHome v2](https://bthome.io/format/) button events and lights the WS2812
