@@ -558,3 +558,7 @@ firmware/
   include/       freestanding libc headers for Homebrew's GCC
 tests/           host-side packet tests
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE). The vendored [ch32fun](ch32fun/) is MIT as well.
