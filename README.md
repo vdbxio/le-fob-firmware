@@ -9,8 +9,7 @@
 
 Four-button BLE fob on a WCH **CH592X** (QFN-32). Each pad broadcasts
 [BTHome v2](https://bthome.io/format/) button events and lights the WS2812
-sitting underneath it. Open hardware from Voidbox Industries; this is the
-firmware.
+sitting adjacent to it. Open hardware from Voidbox Industries; this is the firmware.
 
 - **Gestures:** press, double, triple, long, long-double, long-triple, hold
 - **LEDs:** 4× WS2812 on the PIXEL0 net, bit-banged, one per pad
