@@ -31,6 +31,7 @@
 /* The tests redirect LEFOB_ROM_MAC_ADDR at this buffer so the factory-address
  * handling can be driven through each of its cases. */
 extern uint8_t g_fake_rom[6];
+extern volatile uint32_t g_fake_tmp25c; /* same trick for the temperature calibration word */
 
 /* ------------------------------------------------------------------ */
 /* GPIO registers, as plain variables the gesture test can drive.      */
@@ -98,5 +99,40 @@ extern SysTick_Type *SysTick;
 typedef struct { unsigned SCTLR; } NVIC_Type;
 extern NVIC_Type *NVIC;
 #define __WFI() ((void)0)
+
+/* --- PWM, as variables: flashlight.c drives PWM6 through these --------- */
+extern unsigned char stub_pwm[12];
+#define R8_PWM_OUT_EN    stub_pwm[0]
+#define R8_PWM_POLAR     stub_pwm[1]
+#define R8_PWM_CONFIG    stub_pwm[2]
+#define R8_PWM_CLOCK_DIV stub_pwm[3]
+#define R8_PWM6_DATA     stub_pwm[6]
+#define R8_PWM8_DATA     stub_pwm[8]
+
+/* --- ADC, as variables: battery.c compiles against these ------------- */
+extern unsigned char  R8_TKEY_CFG, R8_ADC_CHANNEL, R8_ADC_CFG;
+extern unsigned char  R8_TEM_SENSOR;
+
+/* R8_ADC_CONVERT is reached through a hook so a test can choose whether a
+ * conversion ever finishes: with adc_stub_completes set, START clears on
+ * the next access, as the hardware would; left clear, it sticks. */
+extern unsigned char  adc_convert_reg;
+extern int            adc_stub_completes;
+static inline unsigned char *adc_convert_access(void)
+{
+	if (adc_stub_completes)
+		adc_convert_reg &= (unsigned char)~0x01;
+	return &adc_convert_reg;
+}
+#define R8_ADC_CONVERT (*adc_convert_access())
+extern unsigned short R16_ADC_DATA;
+#define RB_TEM_SEN_PWR_ON 0x80
+#define RB_ADC_DIFF_EN    0x04
+#define RB_TKEY_PWR_ON   0x01
+#define RB_ADC_POWER_ON  0x01
+#define RB_ADC_BUF_EN    0x02
+#define RB_ADC_START     0x01
+#define RB_ADC_PGA_GAIN2 0x02
+#define RB_ADC_DATA      0x0FFF
 
 #endif

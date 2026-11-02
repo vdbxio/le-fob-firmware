@@ -15,6 +15,7 @@
 
 #include "../firmware/board.h"
 #include "../firmware/bthome.h"
+#include "../firmware/temp.h"
 
 /* Storage that LEFOB_ROM_MAC_ADDR is redirected at (see tests/Makefile). */
 uint8_t g_fake_rom[6];
@@ -107,10 +108,12 @@ static void test_status_frame(void)
 {
 	uint8_t out[64];
 	uint8_t mac[6] = { 0x66, 0x55, 0x44, 0x33, 0x22, 0x11 };
+	bthome_status_t st = { .temp_c100 = 2345, .supply_mv = 3297,
+	                       .batt_low = 1, .charging = 0, .text = "USB chg" };
 
-	printf("\n== status frame (text object) ==\n");
+	printf("\n== status frame ==\n");
 
-	int n = bthome_build_status_adv(out, 0x02, mac, 0x2A, "USB chg");
+	int n = bthome_build_status_adv(out, 0x02, mac, 0x2A, &st);
 
 	hexdump("status packet", out, n);
 
@@ -119,40 +122,61 @@ static void test_status_frame(void)
 	check(sd[1] == 0x16 && sd[2] == 0xD2 && sd[3] == 0xFC && sd[4] == 0x44,
 	      "same service-data framing as the button frame");
 	check(sd[5] == 0x00 && sd[6] == 0x2A, "packet id first");
-	check(sd[7] == 0x53, "then the text object, 0x53");
-	check(sd[8] == 7, "length byte is the text length");
-	check(memcmp(sd + 9, "USB chg", 7) == 0, "UTF-8 payload verbatim");
-	check(sd[0] == 1 + 2 + 1 + 2 + 2 + 7, "service data length byte");
+	check(sd[7] == 0x02 && (int16_t)(sd[8] | sd[9] << 8) == 2345,
+	      "then temperature, 0x02, sint16 0.01 C little-endian");
+	check(sd[10] == 0x0C && (sd[11] | sd[12] << 8) == 3297,
+	      "then voltage, 0x0C, uint16 mV little-endian");
+	check(sd[13] == 0x15 && sd[14] == 1, "then battery low, 0x15");
+	check(sd[15] == 0x16 && sd[16] == 0, "then charging, 0x16");
+	check(sd[17] == 0x53, "then the text object, 0x53");
+	check(sd[18] == 7, "length byte is the text length");
+	check(memcmp(sd + 19, "USB chg", 7) == 0, "UTF-8 payload verbatim");
+	check(sd[0] == 4 + 2 + 3 + 3 + 2 + 2 + 2 + 7, "service data length byte");
+	check(sd[5] < sd[7] && sd[7] < sd[10] && sd[10] < sd[13] &&
+	      sd[13] < sd[15] && sd[15] < sd[17], "object IDs ascend");
 
-	/* No button objects: a "none" event carries nothing, and the bytes
-	 * are the whole text budget. */
+	/* No button objects: a "none" event carries nothing. */
 	int buttons = 0;
-	for (int i = 5; i < 5 + sd[0] - 1; i++)
+	for (int i = 5; i < 1 + sd[0]; i += (sd[i] == 0x53) ? 2 + sd[i + 1] :
+	                                    (sd[i] == 0x02 || sd[i] == 0x0C) ? 3 : 2)
 		if (sd[i] == 0x3A) buttons++;
-	check(buttons == 0 || sd[7] != 0x3A, "no 0x3A button objects in a chirp");
+	check(buttons == 0, "no 0x3A button objects in a chirp");
 
-	/* Name survives, so discovery still works from a chirp alone. */
-	const uint8_t *nm = sd + 1 + sd[0];
-	check(nm[1] == 0x09 && memcmp(nm + 2, BTHOME_NAME, strlen(BTHOME_NAME)) == 0,
-	      "local name still present");
-
+	/* The service data is the last AD structure: no room for the name. */
+	check(11 + 1 + sd[0] == n, "service data ends the payload");
 	check(n - 8 <= 31, "payload within the 31-byte legacy limit");
+
+	/* Negative temperatures survive the two's-complement packing. */
+	st.temp_c100 = -1250;
+	bthome_build_status_adv(out, 0x02, mac, 1, &st);
+	check((int16_t)(sd[8] | sd[9] << 8) == -1250, "-12.50 C packs as sint16");
+
+	/* No reading: the object is left out and everything shifts up. */
+	st.temp_c100 = TEMP_INVALID;
+	int n_notemp = bthome_build_status_adv(out, 0x02, mac, 1, &st);
+	check(sd[7] == 0x0C && n_notemp == n - 3,
+	      "an invalid temperature is omitted, not sent");
+	st.temp_c100 = 2345;
 
 	printf("\n== text budget ==\n");
 
-	/* Exactly the maximum fills the payload to the byte. */
 	char maxtext[BTHOME_STATUS_TEXT_MAX + 1];
 	memset(maxtext, 'x', BTHOME_STATUS_TEXT_MAX); maxtext[BTHOME_STATUS_TEXT_MAX] = 0;
-	n = bthome_build_status_adv(out, 0x02, mac, 1, maxtext);
+	st.text = maxtext;
+	n = bthome_build_status_adv(out, 0x02, mac, 1, &st);
 	printf("  %d-char text -> payload %d of 31\n", BTHOME_STATUS_TEXT_MAX, n - 8);
 	check(n - 8 == 31, "the maximum text fills the payload exactly");
 
-	/* One more character must be truncated, not overflow. */
 	char over[BTHOME_STATUS_TEXT_MAX + 6];
 	memset(over, 'y', sizeof(over) - 1); over[sizeof(over) - 1] = 0;
-	n = bthome_build_status_adv(out, 0x02, mac, 1, over);
-	check(n - 8 == 31 && out[11 + 8] == BTHOME_STATUS_TEXT_MAX,
+	st.text = over;
+	int n2 = bthome_build_status_adv(out, 0x02, mac, 1, &st);
+	check(n2 == n && sd[18] == BTHOME_STATUS_TEXT_MAX,
 	      "longer text is truncated to the budget, never over 31");
+
+	st.text = 0;
+	bthome_build_status_adv(out, 0x02, mac, 1, &st);
+	check(sd[18] == 0, "a missing text is sent as empty");
 }
 
 static void test_address_order(void)

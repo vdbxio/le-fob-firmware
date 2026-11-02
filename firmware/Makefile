@@ -9,8 +9,12 @@ ADDITIONAL_C_FILES := \
 	ble_adv.c \
 	power.c \
 	charger.c \
+	i2c.c \
 	chirp.c \
 	status.c \
+	battery.c \
+	temp.c \
+	flashlight.c \
 	isp.c \
 	libc_shim.c
 
@@ -23,15 +27,16 @@ MINICHLINK := ../ch32fun/minichlink
 # already implements itself. See include/README.md.
 EXTRA_CFLAGS += -ffreestanding -Iinclude
 
-# lib_i2c_ch5xx.h is header-only and lives with its example in the vendored
-# ch32fun tree rather than in extralibs, so it needs its own include path.
-EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
-
 # ---------------------------------------------------------------------------
 # Build knobs. Use these, not EXTRA_CFLAGS on the command line.
 #
 #   make CHARGER=0 flash        charger driver out
 #   make CHARGER_INT=0 flash    charger driver on, but no PA4 wake/chirp
+#   make CHG_MA=96 flash        charge current in mA (multiple of 8)
+#   make FLASHLIGHT_PCT=30 flash   torch momentary / latch-start duty (20 ships)
+#   make FLASHLIGHT_MAX_PCT=100 flash  torch cap for the latched steps (90 ships; bench only)
+#   make FLASHLIGHT=0 flash     no torch
+#   make FLASHLIGHT_CHANNELS=1 flash  PWM6 only (IR fitted on Q1-A)
 #   make CHIRP_TEXT=1 flash     chirp carries the text object (unproven)
 #   make SLEEP=0 flash          stay awake (bring-up)
 #   make RADIO=0 flash          no BLE (LED diagnostics)
@@ -53,6 +58,24 @@ EXTRA_CFLAGS += -I$(CH32FUN)/../examples_ch5xx/i2c_sensors
 # ---------------------------------------------------------------------------
 ifdef CHARGER
 EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER=$(CHARGER)
+endif
+ifdef FLASHLIGHT_PCT
+EXTRA_CFLAGS += -DFLASHLIGHT_PCT=$(FLASHLIGHT_PCT)
+endif
+ifdef FLASHLIGHT_MAX_PCT
+EXTRA_CFLAGS += -DFLASHLIGHT_MAX_PCT=$(FLASHLIGHT_MAX_PCT)
+endif
+ifdef FLASHLIGHT
+EXTRA_CFLAGS += -DFOB_ENABLE_FLASHLIGHT=$(FLASHLIGHT)
+endif
+ifdef FLASHLIGHT_CHANNELS
+EXTRA_CFLAGS += -DFLASHLIGHT_CHANNELS=$(FLASHLIGHT_CHANNELS)
+endif
+ifdef LED_CHARGE
+EXTRA_CFLAGS += -DPAD_LED_SHOW_CHARGE=$(LED_CHARGE)
+endif
+ifdef CHG_MA
+EXTRA_CFLAGS += -DCHARGER_ICHG_MA=$(CHG_MA)
 endif
 ifdef CHARGER_INT
 EXTRA_CFLAGS += -DFOB_ENABLE_CHARGER_INT=$(CHARGER_INT)

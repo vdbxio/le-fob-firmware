@@ -1,6 +1,7 @@
 #include "ch32fun.h"
 #include "board.h"
 #include "bthome.h"
+#include "temp.h"
 #include <string.h>
 
 /* BTHome service data UUID, 0xFCD2, sent little-endian. */
@@ -21,6 +22,10 @@
 #define BTHOME_DEVICE_INFO 0x44
 
 #define BTHOME_OBJ_PACKET_ID 0x00
+#define BTHOME_OBJ_TEMP      0x02  /* sint16, 0.01 C */
+#define BTHOME_OBJ_VOLTAGE   0x0C  /* uint16, 0.001 V */
+#define BTHOME_OBJ_BATT_LOW  0x15  /* binary, 1 = low */
+#define BTHOME_OBJ_CHARGING  0x16  /* binary, 1 = charging */
 #define BTHOME_OBJ_BUTTON    0x3A
 #define BTHOME_OBJ_TEXT      0x53  /* [id][len][utf-8...] */
 
@@ -134,7 +139,7 @@ int bthome_build_adv(uint8_t *out, uint8_t pdu_header, const uint8_t mac[6],
 
 int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
                             const uint8_t mac[6], uint8_t packet_id,
-                            const char *text)
+                            const bthome_status_t *st)
 {
 	int n = 0;
 
@@ -153,13 +158,31 @@ int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
 	out[n++] = BTHOME_UUID_HI;
 	out[n++] = BTHOME_DEVICE_INFO;
 
-	/* Ascending object ids: 0x00 before 0x53. No 0x3A objects here -- a
-	 * button reporting "none" tells the receiver nothing, and the bytes
-	 * are the whole text budget. */
+	/* Ascending object ids: 0x00, 0x02, 0x0C, 0x15, 0x16, 0x53. No 0x3A
+	 * objects -- a button reporting "none" tells the receiver nothing. */
 	out[n++] = BTHOME_OBJ_PACKET_ID;
 	out[n++] = packet_id;
 
-	int tlen = (int)strlen(text);
+	/* Left out, rather than sent as a wrong number, when the sensor did
+	 * not answer. This brings the full frame to exactly 31 bytes. */
+	if (st->temp_c100 != TEMP_INVALID) {
+		out[n++] = BTHOME_OBJ_TEMP;
+		out[n++] = (uint8_t)((uint16_t)st->temp_c100 & 0xFF);
+		out[n++] = (uint8_t)((uint16_t)st->temp_c100 >> 8);
+	}
+
+	out[n++] = BTHOME_OBJ_VOLTAGE;
+	out[n++] = (uint8_t)(st->supply_mv & 0xFF);
+	out[n++] = (uint8_t)(st->supply_mv >> 8);
+
+	out[n++] = BTHOME_OBJ_BATT_LOW;
+	out[n++] = st->batt_low ? 1 : 0;
+
+	out[n++] = BTHOME_OBJ_CHARGING;
+	out[n++] = st->charging ? 1 : 0;
+
+	const char *text = st->text ? st->text : "";
+	int         tlen = (int)strlen(text);
 
 	if (tlen > BTHOME_STATUS_TEXT_MAX)
 		tlen = BTHOME_STATUS_TEXT_MAX;
@@ -170,14 +193,6 @@ int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
 		out[n++] = (uint8_t)text[i];
 
 	out[len_at] = (uint8_t)(n - len_at - 1);
-
-	const char *name    = BTHOME_NAME;
-	int         namelen = (int)strlen(name);
-
-	out[n++] = (uint8_t)(namelen + 1);
-	out[n++] = 0x09;
-	for (int i = 0; i < namelen; i++)
-		out[n++] = (uint8_t)name[i];
 
 	return n;
 }

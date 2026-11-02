@@ -102,8 +102,100 @@
 #define PAD_LED_SHOW_PRESS 1
 #endif
 
+/*
+ * Pad 1 doubles as the charge indicator while USB is in: magenta breathing
+ * while the cell charges, steady green when it is full, slow red blink on
+ * a charger fault. Lowest priority of all the layers, so a press or a
+ * gesture on pad 1 shows over it. The fob stays awake while on USB to
+ * animate it -- it is being powered from the cable, so that costs nothing.
+ *
+ *     make LED_CHARGE=0 flash     to drop it
+ */
+#ifndef PAD_LED_SHOW_CHARGE
+#define PAD_LED_SHOW_CHARGE 1
+#endif
+
+/* Peak level of the charge indicator, as a percentage of the ceiling. */
+#ifndef PAD_LED_CHARGE_PCT
+#define PAD_LED_CHARGE_PCT 60
+#endif
+
 #ifndef PAD_LED_SHOW_TX
 #define PAD_LED_SHOW_TX 1
+#endif
+
+/* ------------------------------------------------------------------ */
+/* Flashlight -- LED1/LED2 behind Q1, gates on PWM6 + PWM8             */
+/* ------------------------------------------------------------------ */
+#define PIN_FLASHLIGHT_A PB0   /* pad 3, PWM6 -> R9 -> Q1-B gate -> one white LED */
+#define PIN_FLASHLIGHT_B PB6   /* pad 2, PWM8 -> R7 -> Q1-A gate -> the other, or the IR */
+
+/*
+ * Which FET channels the torch drives: bit 0 = PWM6/Q1-B, bit 1 = PWM8/Q1-A.
+ * Both carry a white LED as built. The IR emitter footprint shares Q1-A's
+ * pad, so a board reworked for IR runs the torch on PWM6 alone:
+ *
+ *     make FLASHLIGHT_CHANNELS=1 flash
+ */
+#ifndef FLASHLIGHT_CHANNELS
+#define FLASHLIGHT_CHANNELS 3
+#endif
+
+/* Which pad is the flashlight: index 3 = SW4, furthest from the USB port
+ * on this board revision. The production board flips the numbering. */
+#ifndef FLASHLIGHT_BUTTON
+#define FLASHLIGHT_BUTTON 3
+#endif
+
+/*
+ * PWM duty, and therefore the only current limit the white LEDs have on
+ * this revision (see flashlight.h).
+ *
+ * FLASHLIGHT_PCT is the momentary level and the level every latch starts
+ * at. 20% is the handout setting: bright enough to be a torch, well under
+ * what the cell and the 3.8 x 1.0 mm LED packages will tolerate for a
+ * sustained on.
+ *
+ * While latched, SW2 steps the light down and SW3 up, FLASHLIGHT_STEP_PCT
+ * at a time, between FLASHLIGHT_STEP_PCT and FLASHLIGHT_MAX_PCT. The
+ * maximum is the hard cap: nothing in the firmware drives the LEDs harder.
+ * 100% has not been smoke-tested on these LEDs; a bench run that wants it
+ * raises the cap knowingly:
+ *
+ *     make FLASHLIGHT_MAX_PCT=100 flash
+ */
+#ifndef FLASHLIGHT_PCT
+#define FLASHLIGHT_PCT 20
+#endif
+#ifndef FLASHLIGHT_MAX_PCT
+#define FLASHLIGHT_MAX_PCT 90
+#endif
+#ifndef FLASHLIGHT_STEP_PCT
+#define FLASHLIGHT_STEP_PCT 10
+#endif
+
+/* The brightness pads while latched: index 1 = SW2 down, index 2 = SW3 up. */
+#ifndef FLASHLIGHT_DIM_BUTTON
+#define FLASHLIGHT_DIM_BUTTON 1
+#endif
+#ifndef FLASHLIGHT_BRIGHT_BUTTON
+#define FLASHLIGHT_BRIGHT_BUTTON 2
+#endif
+
+/* A double-press decode arriving this soon after a press switched the
+ * latch off is the tail of that same "off" gesture, not a new "on". Longer
+ * than two taps plus the multi-tap window. */
+#ifndef FLASHLIGHT_RELATCH_GUARD_MS
+#define FLASHLIGHT_RELATCH_GUARD_MS 1000
+#endif
+
+/* A latched light forgotten in a bag flattens the cell; cut it off. */
+#ifndef FLASHLIGHT_LATCH_MAX_MS
+#define FLASHLIGHT_LATCH_MAX_MS (5u * 60u * 1000u)
+#endif
+
+#ifndef FOB_ENABLE_FLASHLIGHT
+#define FOB_ENABLE_FLASHLIGHT 1
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -199,6 +291,50 @@
 #define FOB_ENABLE_CHARGER 1
 #endif
 
+/*
+ * Fast-charge current, mA. The AW32001 steps in 8 mA from 8 to 512; its
+ * reset value is 128 mA, about 1.3C on the 100 mAh cell. 48 mA is ~0.5C,
+ * the gentle end of the usual LiPo range: a flat cell is full in about
+ * three hours, well inside the charger's 5 h safety timer. Raise it for a
+ * bigger cell:
+ *
+ *     make CHG_MA=96 flash
+ */
+#ifndef CHARGER_ICHG_MA
+#define CHARGER_ICHG_MA 48
+#endif
+
+_Static_assert(CHARGER_ICHG_MA >= 8 && CHARGER_ICHG_MA <= 512 &&
+               CHARGER_ICHG_MA % 8 == 0,
+               "CHARGER_ICHG_MA must be a multiple of 8 between 8 and 512");
+
+/*
+ * Battery low, from the chip's own supply (see battery.h). Low once the
+ * supply sits BATT_LOW_DROP_MV under the highest reading seen -- the LDO
+ * has fallen out of regulation and the cell is in its last few percent --
+ * or at BATT_LOW_FLOOR_MV regardless. Clears within BATT_LOW_CLEAR_MV of
+ * the reference, or on USB.
+ */
+#ifndef BATT_LOW_DROP_MV
+#define BATT_LOW_DROP_MV 60
+#endif
+#ifndef BATT_LOW_CLEAR_MV
+#define BATT_LOW_CLEAR_MV 20
+#endif
+#ifndef BATT_LOW_FLOOR_MV
+#define BATT_LOW_FLOOR_MV 3150
+#endif
+
+/*
+ * While USB is present the fob stays awake and re-reads the charger this
+ * often, so the pad 1 indicator and the "charging" state follow a plug or
+ * unplug within a second even on boards where the INT jumper is not fitted.
+ * Off USB nothing polls; the chirp and the INT are the only readers.
+ */
+#ifndef CHARGER_POLL_MS
+#define CHARGER_POLL_MS 1000
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Factory info block                                                 */
 /* ------------------------------------------------------------------ */
@@ -223,6 +359,15 @@
 /* Overridable so the host-side packet test can point it at a buffer. */
 #ifndef LEFOB_ROM_MAC_ADDR
 #define LEFOB_ROM_MAC_ADDR ((const uint8_t *)0x0007F018)
+#endif
+
+/*
+ * Temperature sensor calibration word, ROM_CFG_TMP_25C in WCH's
+ * CH59x_adc.h: four bytes below the address block above. Overridable for
+ * the host test, like the MAC.
+ */
+#ifndef LEFOB_ROM_TMP25C_ADDR
+#define LEFOB_ROM_TMP25C_ADDR ((const volatile uint32_t *)0x0007F014)
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -373,14 +518,14 @@ _Static_assert(ADV_ROUND_INTERVAL_MS >= 2,
  * five percent. The interval is a product choice about how stale a
  * status may be, not a battery one.
  *
- * The intended production value is 5 minutes: Home Assistant's "last seen"
- * stays fresh enough to trust, at ~two thirds of the no-chirp lifetime.
- * It is 1 minute for now so that development captures need not run for
- * a quarter of an hour to contain a couple of chirps. Set to 0 to disable
- * chirping entirely.
+ * 5 minutes: Home Assistant's "last seen" stays fresh enough to trust, at
+ * ~two thirds of the no-chirp lifetime. For development captures that
+ * should not take a quarter of an hour to contain a couple of chirps:
+ *
+ *     make CHIRP_MS=60000 flash      (0 disables chirping entirely)
  */
 #ifndef CHIRP_INTERVAL_MS
-#define CHIRP_INTERVAL_MS (60u * 1000u)
+#define CHIRP_INTERVAL_MS (5u * 60u * 1000u)
 #endif
 
 /*

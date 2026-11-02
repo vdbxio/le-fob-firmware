@@ -43,21 +43,32 @@ uint8_t bthome_resolve_address(uint8_t mac[6]);
 int bthome_build_adv(uint8_t *out, uint8_t pdu_header, const uint8_t mac[6],
                      const uint8_t events[NUM_BUTTONS], uint8_t packet_id);
 
+/* What the periodic chirp reports. */
+typedef struct {
+	int16_t     temp_c100;  /* 0x02 temperature, 0.01 C; TEMP_INVALID omits it */
+	uint16_t    supply_mv;  /* 0x0C voltage: the 3V3 rail, see battery.h */
+	uint8_t     batt_low;   /* 0x15 battery low                          */
+	uint8_t     charging;   /* 0x16 battery charging                     */
+	const char *text;       /* 0x53 text: charger state, or why not      */
+} bthome_status_t;
+
 /*
- * Build a status advertisement: packet id plus a BTHome text object
- * (0x53) carrying `text`, with no button objects. Used for the periodic
- * chirp, where every button would be "none" and the bytes are better spent
- * on something a human can read in the receiver's UI.
+ * Build a status advertisement: packet id, die temperature, supply voltage,
+ * battery low, charging, and a text object, with no button objects. Used for the
+ * periodic chirp, where every button would be "none" and the bytes are
+ * better spent on state.
  *
- * Text longer than BTHOME_STATUS_TEXT_MAX is truncated: the legacy
- * advertising payload is 31 bytes and the flags, service-data framing,
- * packet id and local name leave exactly that many for text.
+ * There is no local name in this frame: the 31-byte legacy payload does not
+ * have room for it and the battery objects. Button frames carry it, and the
+ * receiver keeps the last name it saw for an address.
+ *
+ * Text longer than BTHOME_STATUS_TEXT_MAX is truncated.
  */
 int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
                             const uint8_t mac[6], uint8_t packet_id,
-                            const char *text);
+                            const bthome_status_t *st);
 
-#define BTHOME_STATUS_TEXT_MAX 11
+#define BTHOME_STATUS_TEXT_MAX 9
 
 /* Largest value either builder can return, for sizing buffers. */
 #define BTHOME_ADV_MAX 40

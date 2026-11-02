@@ -54,7 +54,7 @@ static void start_burst(const uint8_t events[NUM_BUTTONS], uint8_t rounds)
 	t_last_round = 0; /* forces the first round on the next tick */
 }
 
-void ble_adv_send_heartbeat(const char *status_text)
+void ble_adv_send_heartbeat(const bthome_status_t *status)
 {
 	tx_button = -1; /* no pad to light: nothing was pressed */
 
@@ -62,12 +62,12 @@ void ble_adv_send_heartbeat(const char *status_text)
 
 #if FOB_CHIRP_TEXT
 	/*
-	 * Chirp carries a BTHome text object. This frame shape has not yet
-	 * been confirmed received, so it is behind a knob; the button-none
-	 * frame below is the one Home Assistant has actually accepted.
+	 * Chirp carries supply voltage, battery low, charging and a text
+	 * object. The button-none frame below is the fallback, behind
+	 * CHIRP_TEXT=0.
 	 */
 	adv_len = bthome_build_status_adv(adv_buf, pdu_header, mac, packet_id,
-	                                  status_text);
+	                                  status);
 #else
 	/*
 	 * Proven chirp: the same button frame a press sends, but with every
@@ -79,7 +79,7 @@ void ble_adv_send_heartbeat(const char *status_text)
 	for (int i = 0; i < NUM_BUTTONS; i++)
 		events[i] = BTHOME_EVT_NONE;
 
-	(void)status_text;
+	(void)status;
 	adv_len = bthome_build_adv(adv_buf, pdu_header, mac, events, packet_id);
 #endif
 

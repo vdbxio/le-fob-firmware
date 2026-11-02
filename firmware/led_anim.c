@@ -66,8 +66,14 @@ typedef struct {
 
 /* Levels for the two non-gesture layers, as a 0..255 multiplier that then
  * goes through the global PAD_LED_BRIGHTNESS_PCT ceiling in scale(). */
-#define PRESS_LEVEL ((255 * PAD_LED_PRESS_PCT) / 100)
-#define TX_LEVEL    ((255 * PAD_LED_TX_PCT) / 100)
+#define PRESS_LEVEL  ((255 * PAD_LED_PRESS_PCT) / 100)
+#define TX_LEVEL     ((255 * PAD_LED_TX_PCT) / 100)
+#define CHARGE_LEVEL ((255 * PAD_LED_CHARGE_PCT) / 100)
+
+/* Charge indicator timing: one breath while charging, one blink on fault. */
+#define CHARGE_BREATHE_MS 3000
+#define CHARGE_BLINK_MS   2000
+#define CHARGE_PIXEL      0      /* pad 1, nearest the USB port */
 
 static anim_t   anim[WS2812_COUNT];
 static uint8_t  pressed_mask;
@@ -89,6 +95,7 @@ static int8_t   tx_button = -1;
  * first -- so on current firmware the white glow stays unused by design.
  */
 static uint8_t  tx_suppress;
+static uint8_t  charge_mode;
 static uint8_t  fb[WS2812_COUNT * 3]; /* wire order: G, R, B */
 static uint8_t  fb_shadow[WS2812_COUNT * 3];
 static uint32_t t_last_frame;
@@ -112,6 +119,8 @@ static const uint8_t pad_colour[WS2812_COUNT][3] = {
 
 static const uint8_t colour_white[3] = { 255, 255, 255 };
 static const uint8_t colour_red[3]   = { 255, 0,   0   };
+static const uint8_t colour_magenta[3] = { 255, 0, 255 };
+static const uint8_t colour_green[3] = { 0,   255, 0   };
 
 /* Scale 0..255 by a 0..255 level and then by the global brightness cap.
  * Done in one 32-bit multiply chain to avoid two rounding steps. */
@@ -136,6 +145,46 @@ static void set_anim(uint8_t i, uint8_t kind, const uint8_t rgb[3],
 void led_anim_set_pressed(uint8_t mask)
 {
 	pressed_mask = mask;
+}
+
+void led_anim_set_charge(led_charge_t mode)
+{
+	charge_mode = (uint8_t)mode;
+}
+
+/*
+ * Level of the charge indicator at `now`, 0..CHARGE_LEVEL. Breathing is a
+ * triangle wave that never quite reaches dark, so the pad reads as "on and
+ * doing something" rather than flashing.
+ */
+static uint8_t charge_level(uint32_t now)
+{
+	switch (charge_mode) {
+	case LED_CHARGE_CHARGING: {
+		uint32_t t    = now % CHARGE_BREATHE_MS;
+		uint32_t half = CHARGE_BREATHE_MS / 2;
+		uint32_t up   = t < half ? t : CHARGE_BREATHE_MS - t; /* 0..half */
+		uint32_t lvl  = (CHARGE_LEVEL / 5) + (up * (CHARGE_LEVEL * 4 / 5)) / half;
+
+		return (uint8_t)lvl;
+	}
+	case LED_CHARGE_DONE:
+		return CHARGE_LEVEL;
+	case LED_CHARGE_FAULT:
+		return (now % CHARGE_BLINK_MS) < 200 ? CHARGE_LEVEL : 0;
+	default:
+		return 0;
+	}
+}
+
+static const uint8_t *charge_colour(void)
+{
+	switch (charge_mode) {
+	case LED_CHARGE_CHARGING: return colour_magenta;
+	case LED_CHARGE_DONE:     return colour_green;
+	case LED_CHARGE_FAULT:    return colour_red;
+	default:                  return colour_white;
+	}
 }
 
 void led_anim_set_tx(int button)
@@ -282,6 +331,10 @@ void led_anim_tick(uint32_t now)
 		} else if (PAD_LED_SHOW_PRESS && (pressed_mask & (1u << i))) {
 			rgb   = pad_colour[i];
 			level = PRESS_LEVEL;
+		} else if (PAD_LED_SHOW_CHARGE && i == CHARGE_PIXEL && charge_mode) {
+			/* Charging state, under everything else on pad 1. */
+			rgb   = charge_colour();
+			level = charge_level(now);
 		} else {
 			/* Dark at rest. */
 			fb[i * 3 + 0] = 0;

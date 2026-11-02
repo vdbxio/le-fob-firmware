@@ -1,0 +1,14 @@
+# WCH chips and programmers, for minichlink without root.
+# uaccess hands the device to whoever is logged in at the seat; Fedora has
+# no plugdev group, which is what ch32fun's own 99-minichlink.rules assumes.
+#
+#   sudo cp tools/70-wch-isp.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# CH5xx ROM bootloader (USB ISP) -- what the fob shows up as in SW1-hold mode
+SUBSYSTEM=="usb", ATTRS{idVendor}=="4348", ATTRS{idProduct}=="55e0", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55e0", TAG+="uaccess"
+
+# WCH-LinkE, RISC-V and ARM modes
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="8010", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="8012", TAG+="uaccess"

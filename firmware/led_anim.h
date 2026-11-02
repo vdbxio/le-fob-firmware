@@ -34,6 +34,16 @@ void led_anim_set_pressed(uint8_t mask);
 /* Pad whose advertising burst is on air, or -1 when the radio is idle. */
 void led_anim_set_tx(int button);
 
+/* What the charger is doing, for the pad 1 indicator. */
+typedef enum {
+	LED_CHARGE_OFF = 0,  /* no USB: dark */
+	LED_CHARGE_CHARGING, /* magenta, breathing */
+	LED_CHARGE_DONE,     /* green, steady */
+	LED_CHARGE_FAULT,    /* red, slow blink */
+} led_charge_t;
+
+void led_anim_set_charge(led_charge_t mode);
+
 /*
  * Bootloader-hold "fuse", from isp_hold_progress(): 0 = off, otherwise
  * 1..255 fills the pads in one at a time. While nonzero this layer owns the

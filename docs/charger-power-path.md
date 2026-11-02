@@ -110,12 +110,13 @@ single item in the idle budget — see
 no thermistor is used: tie NTC to VDD and clear `EN_NTC`. Both halves matter,
 and the firmware half needs the driver below.
 
-## Firmware gap
+## Firmware
 
-Nothing talks to the AW32001 at all today — there is no I²C driver. One would
-want to:
+`firmware/charger.c` now drives the part; see the README's *Charging*
+section. Two things from these notes that it relies on: the watchdog is
+disabled outright rather than kicked, and `FET_DIS` is force-cleared on
+every REG06H write, so firmware never puts the board into shipping mode.
 
-- read status (charging, done, fault, VBUS present) for the battery reporting
-  the status chirp will want;
-- set `FET_DIS` deliberately rather than inheriting the default;
-- leave the watchdog alone, or kick it, but not enable it and forget.
+The one thing these notes missed: REG01H resets with **CEB = 1, charging
+disabled**. Until firmware clears it the part only powers the system from
+USB.

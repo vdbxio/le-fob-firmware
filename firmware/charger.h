@@ -6,11 +6,11 @@
 /*
  * AW32001E battery charger, over the shared I2C bus at address 0x49.
  *
- * Two jobs. One is reporting: charge state and VBUS presence, which the
- * status chirp will want. The other is corrective -- the part's reset
- * defaults are wrong for this board in two specific ways, and left alone
- * they produce faults that look like something else entirely. See
- * charger.c.
+ * Two jobs. One is reporting: charge state and VBUS presence, for the
+ * status chirp. The other is corrective -- the part's reset defaults are
+ * wrong for this board in four specific ways, the worst being that it does
+ * not charge at all until told to, and left alone they produce faults that
+ * look like something else entirely. See charger.c.
  */
 
 typedef enum {
@@ -43,6 +43,13 @@ typedef struct {
  * way, so a missing or unreachable charger is not fatal.
  */
 int charger_init(void);
+
+/*
+ * Check the configuration is still in place and re-apply it if the part has
+ * reverted to its defaults; retry from scratch if it was never found. Cheap
+ * (two register reads when all is well), so it runs with every chirp.
+ */
+void charger_service(void);
 
 /* Did charger_init() find the part? */
 int charger_present(void);

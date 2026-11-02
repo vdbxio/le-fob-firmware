@@ -25,11 +25,20 @@ test_leds : test_leds.c ../firmware/led_anim.c
 test_power : test_power.c ../firmware/power.c
 	$(CC) $(CFLAGS) -Dinterrupt=used -o $@ $^
 
-test_charger : test_charger.c ../firmware/charger.c
+test_charger : test_charger.c ../firmware/charger.c stub/i2c_fake.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 test_chirp : test_chirp.c ../firmware/chirp.c
 	$(CC) $(CFLAGS) -o $@ $^
+
+test_battery : test_battery.c ../firmware/battery.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_flashlight : test_flashlight.c ../firmware/flashlight.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_temp : test_temp.c ../firmware/temp.c
+	$(CC) $(CFLAGS) -DLEFOB_ROM_TMP25C_ADDR='&g_fake_tmp25c' -o $@ $^
 
 test_status : test_status.c ../firmware/status.c
 	$(CC) $(CFLAGS) -o $@ $^
@@ -37,7 +46,7 @@ test_status : test_status.c ../firmware/status.c
 test_isp : test_isp.c ../firmware/isp.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp
+run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp test_battery test_temp test_flashlight
 	./test_bthome
 	./test_buttons
 	./test_leds
@@ -46,6 +55,9 @@ run : test_bthome test_buttons test_leds test_power test_charger test_chirp test
 	./test_chirp
 	./test_status
 	./test_isp
+	./test_battery
+	./test_temp
+	./test_flashlight
 
 clean :
-	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp *.dSYM
+	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp test_battery test_temp test_flashlight *.dSYM

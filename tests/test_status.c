@@ -16,6 +16,8 @@
 #include "../firmware/bthome.h"
 #include "../firmware/charger.h"
 #include "../firmware/status.h"
+#include "../firmware/battery.h"
+#include "../firmware/temp.h"
 
 uint8_t g_fake_rom[6];
 
@@ -23,6 +25,10 @@ uint8_t g_fake_rom[6];
 int charger_present(void) { return 0; }
 int charger_read(charger_status_t *s) { (void)s; return 0; }
 charger_result_t charger_result(void) { return CHARGER_NO_ACK; }
+uint16_t battery_read_mv(void) { return 0; }
+int16_t temp_read_c100(void) { return TEMP_INVALID; }
+int battery_low_update(battery_state_t *st, uint16_t mv, int on_usb)
+{ (void)st; (void)mv; (void)on_usb; return 0; }
 
 static int failures;
 static void check(int c, const char *w)
@@ -66,7 +72,7 @@ int main(void)
 	}
 	memset(&s, 0, sizeof s);
 	s.valid = 0;
-	expect("present but status read failed", 1, &s, "chgr read!");
+	expect("present but status read failed", 1, &s, "chgr rd!");
 
 	printf("\n== power source and charge state ==\n");
 	memset(&s, 0, sizeof s); s.valid = 1;
@@ -79,13 +85,13 @@ int main(void)
 
 	printf("\n== a fault outranks a happy state ==\n");
 	s.state = CHARGER_CHARGING; s.power_good = 1;
-	s.faults = CHARGER_FAULT_THERMAL; expect("thermal, while charging", 1, &s, "fault therm");
+	s.faults = CHARGER_FAULT_THERMAL; expect("thermal, while charging", 1, &s, "fault hot");
 	s.faults = CHARGER_FAULT_BAT;     expect("battery OVP",            1, &s, "fault bat");
 	s.faults = CHARGER_FAULT_VIN;     expect("input fault",            1, &s, "fault vin");
-	s.faults = CHARGER_FAULT_TIMER;   expect("safety timer",           1, &s, "fault timer");
+	s.faults = CHARGER_FAULT_TIMER;   expect("safety timer",           1, &s, "fault tmr");
 	s.faults = CHARGER_FAULT_NTC_HOT; expect("NTC hot",                1, &s, "fault ntc");
 	s.faults = CHARGER_FAULT_NTC_COLD;expect("NTC cold",               1, &s, "fault ntc");
-	s.faults = 0; s.watchdog_fault = 1; expect("watchdog expired",     1, &s, "fault wdog");
+	s.faults = 0; s.watchdog_fault = 1; expect("watchdog expired",     1, &s, "fault wd");
 
 	printf("\n== buffer discipline ==\n");
 	char tiny[4];

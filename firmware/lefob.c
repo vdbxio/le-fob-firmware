@@ -34,6 +34,8 @@
 #include "charger.h"
 #include "chirp.h"
 #include "status.h"
+#include "battery.h"
+#include "flashlight.h"
 #include "isp.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
@@ -100,6 +102,12 @@ static void banner(void)
 	}
 	printf("pads   SW1 PB22 | SW2 PB4 | SW3 PB23 | SW4 PA9\n");
 	printf("pixels %d on PB7 (PIXEL0)\n", WS2812_COUNT);
+	printf("torch  SW%d, PWM6+PWM8 mask %d, %d%% duty interleaved, latch %lu s max\n"
+	       "       latched: SW%d down / SW%d up, %d%% steps to %d%% cap\n",
+	       FLASHLIGHT_BUTTON + 1, FLASHLIGHT_CHANNELS, FLASHLIGHT_PCT,
+	       (unsigned long)(FLASHLIGHT_LATCH_MAX_MS / 1000),
+	       FLASHLIGHT_DIM_BUTTON + 1, FLASHLIGHT_BRIGHT_BUTTON + 1,
+	       FLASHLIGHT_STEP_PCT, FLASHLIGHT_MAX_PCT);
 
 	if (!FOB_ENABLE_CHARGER) {
 		printf("chgr   driver disabled (FOB_ENABLE_CHARGER=0)\n");
@@ -107,10 +115,10 @@ static void banner(void)
 		charger_status_t chg;
 
 		if (charger_read(&chg))
-			printf("chgr   AW32001 @0x%02X: %s, VBUS %s%s\n",
+			printf("chgr   AW32001 @0x%02X: %s, VBUS %s%s, ICHG %d mA\n",
 			       CHARGER_I2C_ADDR, charger_state_name(chg.state),
 			       chg.power_good ? "present" : "absent",
-			       chg.faults ? ", FAULTS" : "");
+			       chg.faults ? ", FAULTS" : "", CHARGER_ICHG_MA);
 		else
 			printf("chgr   AW32001 @0x%02X found, status read failed\n",
 			       CHARGER_I2C_ADDR);
@@ -118,6 +126,9 @@ static void banner(void)
 		printf("chgr   not responding at 0x%02X (bus pull-ups?)\n",
 		       CHARGER_I2C_ADDR);
 	}
+
+	printf("supply %u mV (3V3 rail; falls only when the cell is nearly flat)\n",
+	       battery_read_mv());
 
 	if (FOB_DISABLE_RADIO)
 		printf("RADIO  DISABLED (FOB_DISABLE_RADIO=1) - LED diagnostic build\n");
@@ -205,6 +216,7 @@ int main(void)
 	systick_init();
 	buttons_init();
 	led_anim_init();
+	flashlight_init();
 
 	if (!FOB_DISABLE_RADIO)
 		ble_adv_init();
@@ -226,6 +238,23 @@ int main(void)
 	 * rate limit. Starts far enough back that the first one is allowed. */
 	uint32_t t_last_interim = power_rtc_ticks() - 32768u * 60u;
 
+	/* One status chirp straight after boot, so a fresh flash or a battery
+	 * going in shows up in the receiver now rather than a chirp interval
+	 * later. */
+	int boot_chirp = CHIRP_INTERVAL_MS != 0;
+
+	/*
+	 * USB presence, as the charger last reported it. While it is in, the
+	 * fob stays awake -- powered from the cable, so for free -- animates
+	 * the pad 1 charge indicator, and re-reads the charger every
+	 * CHARGER_POLL_MS so a plug or unplug is noticed within a second even
+	 * without the INT jumper. Off USB this is read only when something
+	 * else already woke the chip: the chirp, or the INT itself.
+	 */
+	uint8_t  on_usb      = 0;
+	uint32_t t_chg_poll  = 0;
+	int      chg_refresh = 1; /* read it at boot */
+
 	while (1) {
 		if (g_tick) {
 			g_tick = 0;
@@ -242,9 +271,24 @@ int main(void)
 
 				led_anim_trigger(button, event, now);
 
+				/* SW2/SW3 pressed while the torch is latched were its
+				 * dimmer, not remote buttons: keep them off the air. */
+				if (flashlight_took_press(button)) {
+					printf("torch  %d%%\n", flashlight_level_pct());
+					continue;
+				}
+
+				/* Double tap on the flashlight pad latches the light.
+				 * The event still goes out: the receiver may want it. */
+				if (button == FLASHLIGHT_BUTTON &&
+				    event == BTHOME_EVT_DOUBLE_PRESS)
+					flashlight_latch(now);
+
 				if (!FOB_DISABLE_RADIO)
 					ble_adv_send_event(button, event);
 			}
+
+			flashlight_tick(buttons_pressed_mask(), status_battery_low(), now);
 
 			/*
 			 * Feed the two state-tracking LED layers before
@@ -274,7 +318,11 @@ int main(void)
 			uint32_t rtc = power_rtc_ticks();
 			int      send = 0;
 
-			if (CHIRP_INTERVAL_MS && chirp_due(rtc)) {
+			if (boot_chirp) {
+				boot_chirp = 0;
+				send       = 1;
+				printf("chirp (boot)\n");
+			} else if (CHIRP_INTERVAL_MS && chirp_due(rtc)) {
 				send = 1;
 				printf("chirp\n");
 			}
@@ -288,6 +336,7 @@ int main(void)
 			 * along with the chirp already sent.
 			 */
 			if (FOB_ENABLE_CHARGER_INT && buttons_take_charger_int()) {
+				chg_refresh = 1;
 				if (power_rtc_elapsed_ms(t_last_interim, rtc) >=
 				    CHARGER_INT_MIN_GAP_MS) {
 					send           = 1;
@@ -296,9 +345,47 @@ int main(void)
 				}
 			}
 
+			if (send || (on_usb && (uint32_t)(now - t_chg_poll) >= CHARGER_POLL_MS))
+				chg_refresh = 1;
+
+			if (FOB_ENABLE_CHARGER && chg_refresh) {
+				charger_status_t cs;
+				led_charge_t     mode = LED_CHARGE_OFF;
+
+				chg_refresh = 0;
+				t_chg_poll  = now;
+
+				if (charger_read(&cs) && cs.power_good) {
+					if (cs.faults)
+						mode = LED_CHARGE_FAULT;
+					else if (cs.state == CHARGER_DONE)
+						mode = LED_CHARGE_DONE;
+					else
+						mode = LED_CHARGE_CHARGING;
+				}
+
+				if (on_usb != (mode != LED_CHARGE_OFF)) {
+					on_usb = mode != LED_CHARGE_OFF;
+					printf("usb    %s\n", on_usb ? "in" : "out");
+				}
+				led_anim_set_charge(mode);
+			}
+
 			if (send) {
-				if (!FOB_DISABLE_RADIO)
-					ble_adv_send_heartbeat(status_text());
+				/* Before the status read, so the text reflects a
+				 * charger that has just been put right. */
+				if (FOB_ENABLE_CHARGER)
+					charger_service();
+				if (!FOB_DISABLE_RADIO) {
+					bthome_status_t st;
+
+					status_collect(&st);
+					printf("status %s, %u mV%s%s\n", st.text,
+					       st.supply_mv,
+					       st.charging ? ", charging" : "",
+					       st.batt_low ? ", LOW" : "");
+					ble_adv_send_heartbeat(&st);
+				}
 				/* An interim chirp counts: restart the schedule. */
 				chirp_mark_sent(rtc);
 			}
@@ -307,7 +394,8 @@ int main(void)
 				/* A human is involved: use the human linger. */
 				linger = FOB_IDLE_LINGER_MS;
 			}
-			if (buttons_busy() || led_anim_busy() || ble_adv_busy())
+			if (buttons_busy() || led_anim_busy() || ble_adv_busy() ||
+			    flashlight_on())
 				t_active = now;
 		}
 
@@ -318,7 +406,7 @@ int main(void)
 		 * a short linger so a user between taps of a double-press is
 		 * never cut off.
 		 */
-		if ((uint32_t)(g_millis - t_active) >= linger) {
+		if (!on_usb && (uint32_t)(g_millis - t_active) >= linger) {
 			led_anim_all_off();
 
 			uint32_t slept_from = power_rtc_ticks();

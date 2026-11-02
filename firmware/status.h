@@ -2,16 +2,23 @@
 #define LE_FOB_STATUS_H
 
 #include <stddef.h>
+#include "bthome.h"
 #include "charger.h"
 
 /*
- * The short human-readable line the status chirp carries. At most
- * BTHOME_STATUS_TEXT_MAX (11) characters, because that is what fits.
+ * Everything the status chirp carries: supply voltage, battery low,
+ * charging, and a short human-readable line -- at most
+ * BTHOME_STATUS_TEXT_MAX (9) characters, because that is what fits.
  *
- * Reads the charger; if the driver is off or the part did not answer, says
- * so rather than guessing at the power source.
+ * Reads the charger and the supply. If the charger driver is off or the
+ * part did not answer, the text says so rather than guessing at the power
+ * source, and "charging" reads as no. The text pointer stays valid until
+ * the next call.
  */
-const char *status_text(void);
+void status_collect(bthome_status_t *out);
+
+/* The battery-low flag as of the last status_collect(). */
+int status_battery_low(void);
 
 /*
  * The formatting alone, over a given charger reading, so it can be

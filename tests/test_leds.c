@@ -316,6 +316,47 @@ int main(void)
 		render(50); /* 400 ms, longer than the keepalive interval */
 	check(all_dark(), "a lost frame is repaired without a state change");
 
+	printf("\n== charge indicator on pad 1 ==\n");
+
+	led_anim_all_off();
+	led_anim_set_tx(-1);
+	led_anim_set_pressed(0);
+	led_anim_set_charge(LED_CHARGE_CHARGING);
+	render(50);
+	check(lit(0) && R(0) > 0 && B(0) > 0 && G(0) == 0, "charging: pad 1 magenta");
+	check(!lit(1) && !lit(2) && !lit(3), "only pad 1");
+	{
+		uint8_t lo = R(0), hi = lo;
+		for (int k = 0; k < 60; k++) {
+			render(50);
+			if (R(0) < lo) lo = R(0);
+			if (R(0) > hi) hi = R(0);
+		}
+		check(hi > lo && lo > 0, "and breathes without going dark");
+	}
+
+	led_anim_set_charge(LED_CHARGE_DONE);
+	render(50);
+	check(G(0) > 0 && R(0) == 0 && B(0) == 0, "done: steady green");
+	uint8_t g1 = G(0);
+	render(1000);
+	check(G(0) == g1, "and does not change over time");
+
+	led_anim_set_pressed(1u << 0);
+	render(50);
+	check(G(0) > 0 && R(0) == 0, "a press on pad 1 shows over the indicator (cyan)");
+	led_anim_set_pressed(0);
+
+	led_anim_set_charge(LED_CHARGE_FAULT);
+	now = (now / 2000 + 1) * 2000; render(20);
+	check(R(0) > 0 && G(0) == 0, "fault: red");
+	render(500);
+	check(!lit(0), "mostly off between blinks");
+
+	led_anim_set_charge(LED_CHARGE_OFF);
+	render(50);
+	check(!lit(0), "off USB: dark again");
+
 	printf("\n%s\n", failures ? "FAILURES" : "all checks passed");
 	return failures ? 1 : 0;
 }

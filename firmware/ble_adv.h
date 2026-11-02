@@ -2,6 +2,7 @@
 #define LE_FOB_BLE_ADV_H
 
 #include <stdint.h>
+#include "bthome.h"
 
 /*
  * BTHome advertising over ch32fun's iSLER raw-radio layer.
@@ -22,7 +23,7 @@ void ble_adv_send_event(uint8_t button, uint8_t event);
  * `status_text`, no button objects, a shorter burst. Refreshes the
  * receiver's "last seen" and shows it a line a human can read.
  */
-void ble_adv_send_heartbeat(const char *status_text);
+void ble_adv_send_heartbeat(const bthome_status_t *status);
 
 /* Drive the burst. Transmits at most one round (three channels) per call
  * and only when ADV_ROUND_INTERVAL_MS has elapsed. */

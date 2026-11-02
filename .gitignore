@@ -28,3 +28,6 @@
 /tests/test_chirp
 /tests/test_status
 /tests/test_isp
+/tests/test_battery
+/tests/test_temp
+/tests/test_flashlight

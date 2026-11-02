@@ -22,8 +22,8 @@ column) cross-referenced with the board netlist.
 | 10 | BTN4 | **PA9** | SW4 |
 | 17 | PIXEL0 | **PB7** | WS2812 chain W1→W2→W3→W4, order matches SW1→SW4 |
 | 29 | PIXEL1 | PA14 | external header CON1 (unused) |
-| 3 / 2 | PWM6 / PWM8 | PB0 / PB6 | white LED and IR gates (unused) |
-| 12 / 11 | SDA / SCL | PB14 / PB15 | I²C — OLED, AW32001 charger (unused) |
+| 3 / 2 | PWM6 / PWM8 | PB0 / PB6 | flashlight: one white LED per FET channel (the PWM8 pad doubles as the IR footprint) |
+| 12 / 11 | SDA / SCL | PB14 / PB15 | I²C — AW32001 charger, OLED (unused) |
 
 All four switches short to ground, so they are active-low with the internal
 pull-up enabled.
@@ -111,9 +111,14 @@ you are changing one — the knob is baked into every object). Defaults are in
 | Knob | Default | What it does |
 |---|---|---|
 | `SLEEP=0` | 1 | Stay awake instead of deep-sleeping between events |
-| `CHIRP_MS=2000` | 60000 | Status chirp interval; `0` disables timed wakes |
-| `CHIRP_TEXT=0` | 1 | Chirp carries the button frame instead of the status text |
+| `CHIRP_MS=2000` | 300000 | Status chirp interval (5 min); `0` disables timed wakes |
+| `CHIRP_TEXT=0` | 1 | Chirp carries the button frame instead of the status objects |
 | `CHARGER=0` / `CHARGER_INT=0` | 1 / 1 | Charger driver / charger INT pin |
+| `CHG_MA=96` | 48 | Battery charge current in mA, multiple of 8 |
+| `LED_CHARGE=0` | 1 | Pad 1 charge indicator while on USB |
+| `FLASHLIGHT_PCT=30` / `FLASHLIGHT=0` | 20 / 1 | Torch momentary and latch-start duty / torch at all |
+| `FLASHLIGHT_MAX_PCT=100` | 90 | Cap for the latched brightness steps (bench only) |
+| `FLASHLIGHT_CHANNELS=1` | 3 | Torch FET channels: 1 = PWM6, 2 = PWM8, 3 = both |
 | `RADIO=0` | on | No transmissions at all (LED diagnostic build) |
 | `TXPOWER=4` | 7 | Transmit power in dBm, −25 … +7 |
 | `ROUNDS=12` | 20 | Repeats per burst, presses and chirps alike |
@@ -132,6 +137,33 @@ make clean && make SLEEP=0 CHIRP_MS=2000 flash
 Export the packet-id history for a couple of minutes; received ÷ (last −
 first + 1) is the delivery rate. Change one knob at a time and re-run. The
 banner also prints the crystal trim the chip is actually using (`xtal`).
+
+## Charging
+
+The AW32001 **does not charge out of reset**: REG01H resets with CEB = 1,
+"charge disable", and it stays that way until a host clears it. With USB in
+it powers the board and leaves the battery alone. Firmware before the fix
+never cleared it, which is why the status text only ever said `USB idle`.
+
+`charger.c` now applies four corrections at boot, each one read back to
+confirm it took, in this order:
+
+| | Register | Reset value | Set to |
+|---|---|---|---|
+| 1 | REG05H watchdog | 160 s | off: a sleeping fob cannot kick it |
+| 2 | REG06H EN_NTC | on | off: NTC tied high reads as "too cold" |
+| 3 | REG02H ICHG | 128 mA (1.3C) | `CHG_MA`, default 48 mA (~0.5C on 100 mAh) |
+| 4 | REG01H CEB | 1, charging off | 0, charging on |
+
+Every chirp also checks that CEB and the watchdog are still where they were
+left, and re-applies the lot if the part has reverted to defaults (watchdog
+expiry, battery re-insert). It also retries a charger that was not found at
+boot.
+
+The status text in Home Assistant reads `USB chg` while charging, `USB done`
+when full, `USB pre` while pre-charging a deeply flat cell, and `battery`
+unplugged. `chgr cfg!` means a write did not verify: the part was put back
+to defaults and **will not charge**. The next chirp tries again.
 
 ## Console
 
@@ -186,6 +218,67 @@ Each gesture maps to a BTHome button event on object `0x3A`:
 
 Timings live in [`firmware/board.h`](firmware/board.h).
 
+### Status chirp
+
+Every 5 minutes, once at boot, and whenever USB goes in or out, the fob
+sends a status frame with no button objects:
+
+| Object | Entity | Meaning |
+|---|---|---|
+| `0x02` temperature | Temperature | the CH592 die, ± a few °C; left out if the sensor fails |
+| `0x0C` voltage | Voltage | the 3V3 rail, **not the cell** — see below |
+| `0x15` battery | Battery (binary) | on = low, charge me |
+| `0x16` battery charging | Battery charging | on while the cell is charging |
+| `0x53` text | Text | `USB chg`, `USB done`, `battery`, `fault …`, or `chgr …` (9 chars max) |
+
+The board has no battery voltage sense. What the chip can measure is its own
+supply, which the 3.3 V regulator holds steady until the cell can no longer
+keep it in regulation (roughly 3.35 V, the last few percent of a LiPo). So
+the voltage reads flat for weeks and then falls; **battery low** fires once
+it sits 60 mV under the highest reading seen since boot. That leaves a
+couple of days of chirps at the 5 min interval — enough for an alert, not a
+fuel gauge.
+
+The status frame has no room for the local name (31 bytes), so it is left
+out; button presses carry it, and Home Assistant keeps the last name it saw
+for the address.
+
+## Flashlight
+
+SW4 (furthest from the USB port) drives the two white LEDs, one on each
+channel of Q1 (PWM6 → Q1-B, PWM8 → Q1-A):
+
+| Gesture | Light |
+|---|---|
+| press and hold | on while held at 20%, off on release |
+| double tap | latched on at 20% |
+| SW2 / SW3 while latched | 10% dimmer / brighter, 10% … 90% |
+| any press of SW4 while latched | off (that press does not relight it) |
+| latched 5 minutes | off by itself |
+
+The BTHome events for SW4 still go out as normal, so the pad can drive an
+automation as well. SW2 and SW3 presses made while the light is latched
+are the dimmer and stay off the air; unlatched they are ordinary remote
+buttons again. Every new latch starts back at 20%.
+
+**There is no current limiting on this board revision.** LED1 and LED2 sit
+across the system rail through the FET, so the PWM duty in
+[`flashlight.c`](firmware/flashlight.c) is the only thing limiting their
+current. `FLASHLIGHT_PCT` (**20%**, 919 Hz) is the momentary and
+latch-start level; `FLASHLIGHT_MAX_PCT` (**90%**) is the hard cap for the
+latched steps, and nothing in the firmware drives the LEDs harder. The two
+channels are **interleaved** — PWM8 runs inverted with the complementary
+count, so one LED is on while the other is off — which below 50% halves
+the peak current and the rail sag for the same light; above 50% the two
+on-times overlap in the middle of the cycle. 100% has not been
+smoke-tested on these LEDs. Bench characterisation runs raise the cap
+knowingly with `make FLASHLIGHT_MAX_PCT=100 flash`;
+`make FLASHLIGHT=0 flash` removes the feature. A board reworked with the IR emitter on Q1-A's pad runs the torch
+on PWM6 alone: `make FLASHLIGHT_CHANNELS=1 flash`. The light is refused while the battery reads low, so a torch
+cannot flatten a fob past the point where it can still advertise.
+
+The fob does not deep-sleep while the light is on.
+
 ## Pad LEDs
 
 The pads are **dark at rest**. Three layers can light one, highest priority
@@ -196,6 +289,14 @@ first:
 | Gesture | a gesture is decoded | the patterns above, at the full ceiling |
 | On air | a burst is transmitting | steady white |
 | Press | a pad is physically held | steady, dim, pad colour |
+| Charge | USB is in (pad 1 only) | magenta breathing while charging, steady green when full, slow red blink on a charger fault |
+
+While USB is in the fob does not deep-sleep — it is being powered from the
+cable — and re-reads the charger once a second, so the pad 1 indicator and
+the `charging` entity follow a plug or unplug within a second even on boards
+without the INT jumper. Unplug and it goes back to sleeping as normal.
+`make LED_CHARGE=0 flash` drops the indicator (the fob still stays awake on
+USB).
 
 Pad identity colours are cyan / green / amber / magenta for SW1–SW4.
 
@@ -445,7 +546,14 @@ firmware/
   bthome.c/h     BTHome v2 packet builder
   ble_adv.c/h    iSLER advertising bursts
   power.c/h      DC-DC, RTC timebase, pin quiescing, deep sleep
-  charger.c/h    AW32001 over I2C: status, and two corrected defaults
+  charger.c/h    AW32001: status, and the four defaults it must correct
+  i2c.c/h        polled single-byte I2C master, replacing ch32fun's lib
+  battery.c/h    supply reading and the battery-low decision
+  temp.c/h       die temperature from the chip's own sensor
+  flashlight.c/h white LEDs on PWM6+PWM8, interleaved: momentary, latch, SW2/SW3 dimmer, duty cap
+  status.c/h     what the status chirp says
+  chirp.c/h      when the status chirp is due
+  isp.c/h        SW1-hold into the ROM bootloader
   libc_shim.c    one strong memset; see the file for why
   include/       freestanding libc headers for Homebrew's GCC
 tests/           host-side packet tests

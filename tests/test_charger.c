@@ -1,11 +1,12 @@
 /*
  * Host-side check of firmware/charger.c against a fake AW32001.
  *
- * The two register corrections this driver makes are load-bearing and both
- * fail quietly if they regress: leave the watchdog running and the charger
- * reverts its own configuration and power-cycles the board every 160 s while
- * charging; leave EN_NTC set and the fob works perfectly except that it never
- * charges. Neither announces itself, so both are asserted here.
+ * The register corrections this driver makes are load-bearing and all of
+ * them fail quietly if they regress: leave the watchdog running and the
+ * charger reverts its own configuration and power-cycles the board every
+ * 160 s while charging; leave EN_NTC or CEB set and the fob works perfectly
+ * except that it never charges; leave ICHG alone and a 100 mAh cell charges
+ * at 1.3C. None announces itself, so all are asserted here.
  *
  * Build and run with:  make -C tests
  */
@@ -16,19 +17,9 @@
 
 #include "../firmware/board.h"
 #include "../firmware/charger.h"
-#include "stub/lib_i2c_ch5xx.h"
+#include "stub/i2c_fake.h"
 
 uint8_t g_fake_rom[6];
-
-/* Backing store for the fake device. */
-uint8_t i2c_fake_reg[I2C_FAKE_NREG];
-uint8_t i2c_fake_present;
-uint8_t i2c_fake_log_reg[I2C_FAKE_NLOG];
-uint8_t i2c_fake_log_val[I2C_FAKE_NLOG];
-int     i2c_fake_log_len;
-int     i2c_fake_init_khz;
-int     i2c_fake_corrupt_reads;
-int     i2c_fake_clean_first;
 
 static int failures;
 
@@ -43,16 +34,27 @@ static void check(int cond, const char *what)
 static void device_reset(void)
 {
 	memset(i2c_fake_reg, 0, sizeof(i2c_fake_reg));
-	i2c_fake_reg[0x01] = 0xAC;
+	i2c_fake_reg[0x01] = 0xAC; /* CEB=1: charging disabled            */
+	i2c_fake_reg[0x02] = 0x0F; /* ICHG = 128 mA                       */
 	i2c_fake_reg[0x05] = 0x7A; /* EN_WD_DISCHG=0, WATCHDOG=11 (160 s) */
 	i2c_fake_reg[0x06] = 0xC0; /* EN_NTC=1, TMR2X_EN=1, FET_DIS=0     */
 	i2c_fake_reg[0x08] = 0x40;
 	i2c_fake_reg[0x09] = 0x00;
 	i2c_fake_reg[0x0A] = 0x49; /* chip ID */
 	i2c_fake_log_len   = 0;
+	i2c_fake_reads     = 0;
 	i2c_fake_present   = 1;
 	i2c_fake_corrupt_reads = 0;
 	i2c_fake_clean_first   = 0;
+}
+
+/* Index of the last log entry touching `reg`, or -1. */
+static int last_write_to(uint8_t reg)
+{
+	for (int i = i2c_fake_log_len - 1; i >= 0; i--)
+		if (i2c_fake_log_reg[i] == reg)
+			return i;
+	return -1;
 }
 
 /* Index of the first log entry touching `reg`, or -1. */
@@ -72,7 +74,7 @@ int main(void)
 	check(charger_init() == 1, "finds the part when the chip ID matches");
 	check(charger_result() == CHARGER_OK, "and reports OK");
 	check(charger_present(), "reports present afterwards");
-	check(i2c_fake_init_khz == CHARGER_I2C_KHZ, "bus opened at the configured rate");
+	check(i2c_fake_open_khz == CHARGER_I2C_KHZ, "bus opened at the configured rate");
 
 	device_reset();
 	i2c_fake_reg[0x0A] = 0x12; /* wrong ID */
@@ -121,6 +123,27 @@ int main(void)
 	check((i2c_fake_reg[0x06] & 0x20) == 0,
 	      "FET_DIS still clear -- never put the fob into shipping mode");
 
+	printf("\n== charge current sized to the cell ==\n");
+
+	check((i2c_fake_reg[0x02] & 0x3F) == CHARGER_ICHG_MA / 8 - 1,
+	      "ICHG set from CHARGER_ICHG_MA (was 128 mA at reset)");
+	check((i2c_fake_reg[0x02] & 0xC0) == 0,
+	      "REG_RST and WD_TMR_RST not set by the ICHG write");
+
+	printf("\n== charging must end up enabled ==\n");
+
+	check((i2c_fake_reg[0x01] & 0x08) == 0,
+	      "CEB cleared -- the part does not charge until this happens");
+	check(i2c_fake_reg[0x01] == (0xAC & ~0x08),
+	      "the rest of REG01H left at its reset value");
+
+	int ceb = last_write_to(0x01), ichg = last_write_to(0x02);
+
+	check(ceb >= 0 && ceb == i2c_fake_log_len - 1,
+	      "charging enabled last, after everything else is in place");
+	check(ichg >= 0 && ichg < ceb && ntc < ceb,
+	      "current and NTC configured before charging starts");
+
 	printf("\n== idempotent ==\n");
 
 	int before = i2c_fake_log_len;
@@ -167,6 +190,47 @@ int main(void)
 			didreset = 1;
 	check(didreset, "software reset issued, returning the part to default mode");
 
+	printf("\n== service: repair a part that reverted ==\n");
+
+	device_reset();
+	charger_init();
+	before = i2c_fake_log_len;
+	i2c_fake_reads = 0;
+	charger_service();
+	check(i2c_fake_log_len == before, "a healthy part is not written to");
+	check(i2c_fake_reads <= 2, "and costs no more than two reads");
+
+	/* Watchdog expiry or a battery re-insert: every register back to its
+	 * reset value while the MCU kept running. */
+	device_reset();
+	charger_init();
+	device_reset();
+	charger_service();
+	check((i2c_fake_reg[0x01] & 0x08) == 0, "CEB cleared again after a revert");
+	check((i2c_fake_reg[0x05] & 0x60) == 0, "watchdog off again");
+	check((i2c_fake_reg[0x06] & 0x80) == 0, "EN_NTC off again");
+	check((i2c_fake_reg[0x02] & 0x3F) == CHARGER_ICHG_MA / 8 - 1, "ICHG set again");
+
+	/* Not found at boot: the service retries from scratch. */
+	device_reset();
+	i2c_fake_present = 0;
+	charger_init();
+	i2c_fake_present = 1;
+	charger_service();
+	check(charger_present() && charger_result() == CHARGER_OK,
+	      "a part missing at boot is picked up on a later service");
+	check((i2c_fake_reg[0x01] & 0x08) == 0, "and configured to charge");
+
+	/* A read that fails during service is not grounds for rewriting. */
+	device_reset();
+	charger_init();
+	before = i2c_fake_log_len;
+	i2c_fake_present = 0;
+	charger_service();
+	i2c_fake_present = 1;
+	check(i2c_fake_log_len == before && charger_present(),
+	      "a failed service read changes nothing");
+
 	printf("\n== status decode ==\n");
 
 	charger_status_t s;
@@ -209,7 +273,7 @@ int main(void)
 	i2c_fake_reg[0x09] = 0x00;
 	check(charger_read(&s) == 1, "status read succeeds");
 	check(s.valid && s.state == CHARGER_CHARGING && s.power_good,
-	      "and decodes both registers from one transaction");
+	      "and decodes REG08H and REG09H together");
 
 	printf("\n%s\n", failures ? "FAILURES" : "all checks passed");
 	return failures ? 1 : 0;
