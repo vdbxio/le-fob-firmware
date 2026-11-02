@@ -1,13 +1,27 @@
 # Le'Fob — CH592X BTHome firmware
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![MCU: WCH CH592X](https://img.shields.io/badge/MCU-WCH%20CH592X-informational)](#pin-map)
+[![BTHome v2](https://img.shields.io/badge/BTHome-v2-brightgreen)](https://bthome.io/format/)
+[![built on ch32fun](https://img.shields.io/badge/built%20on-ch32fun-orange)](https://github.com/cnlohr/ch32fun)
+[![tests: 11 host suites](https://img.shields.io/badge/tests-11%20host%20suites-success)](#tests)
+[![vibe coded](https://img.shields.io/badge/vibe%20coded-with%20Claude-d97757?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
+[![Supercon 2026](https://img.shields.io/badge/handed%20out%20at-Supercon%202026-black)](https://hackaday.io/superconference/)
+
 Four-button BLE fob on a WCH **CH592X** (QFN-32). Each pad broadcasts
 [BTHome v2](https://bthome.io/format/) button events and lights the WS2812
-sitting underneath it.
+sitting underneath it. Open hardware from Voidbox Industries; this is the
+firmware.
 
 - **Gestures:** press, double, triple, long, long-double, long-triple, hold
 - **LEDs:** 4× WS2812 on the PIXEL0 net, bit-banged, one per pad
 - **Radio:** raw BLE advertising via ch32fun's iSLER — no BLE stack
-- **Interrupt-driven** throughout, with the deep-sleep wake path already wired
+- **Status chirp** every 5 minutes: die temperature, supply voltage,
+  battery low, charging
+- **Charging:** the AW32001 ships with charging disabled; the firmware
+  turns it on and pad 1 breathes magenta while it charges
+- **Flashlight:** SW4 drives the two white LEDs, with a dimmer while latched
+- **Deep sleep by default:** a measured 36 µA floor, months on a 100 mAh cell
 
 ## Pin map
 
@@ -66,10 +80,26 @@ once and use hold-and-plug.
 
 ## Build and flash
 
+macOS:
+
 ```bash
 brew install riscv64-elf-gcc libusb pkg-config
 make
 ```
+
+Linux (Fedora shown; Debian names differ):
+
+```bash
+sudo dnf install libusb1-devel systemd-devel
+# any RISC-V bare-metal GCC on PATH works; ch32fun picks up the prefix.
+# The xPack riscv-none-elf-gcc release tarball is the easy one.
+sudo cp tools/70-wch-isp.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+make -C ch32fun/minichlink
+make
+```
+
+The udev rule lets a non-root user talk to the WCH ISP bootloader
+(USB `4348:55e0`).
 
 To flash: hold **SW1**, plug in USB, release **SW1**, then
 
@@ -194,15 +224,16 @@ Homebrew's `riscv64-elf-gcc` is a compiler with no C library, so there is no
 `stdio.h` or `string.h` on the include path. That turns out to be nearly
 harmless, because ch32fun builds `-nostdlib` and carries its own `printf`,
 `memcpy` and friends — only the declarations were missing. `firmware/include/`
-supplies them and the build adds `-ffreestanding`. See
-[`firmware/include/README.md`](firmware/include/README.md) for the details and
-for how to switch to a full newlib toolchain instead.
+supplies them and the build adds `-ffreestanding`. A full toolchain such as
+the xPack `riscv-none-elf-gcc` builds the same tree unchanged. See
+[`firmware/include/README.md`](firmware/include/README.md) for the details.
 
 ## Home Assistant
 
 Settings → Devices & Services → **Add integration** → **BTHome**, then press a
-button. The fob advertises as `le-fob` and appears as four button entities.
-No encryption key — this is plaintext BTHome v2.
+button. The fob advertises as `le-fob` and appears as four button entities
+plus the status entities listed below. No encryption key — this is
+plaintext BTHome v2 for now; encryption is the next piece of work.
 
 Each gesture maps to a BTHome button event on object `0x3A`:
 
@@ -266,18 +297,22 @@ across the system rail through the FET, so the PWM duty in
 [`flashlight.c`](firmware/flashlight.c) is the only thing limiting their
 current. `FLASHLIGHT_PCT` (**20%**, 919 Hz) is the momentary and
 latch-start level; `FLASHLIGHT_MAX_PCT` (**90%**) is the hard cap for the
-latched steps, and nothing in the firmware drives the LEDs harder. The two
-channels are **interleaved** — PWM8 runs inverted with the complementary
-count, so one LED is on while the other is off — which below 50% halves
-the peak current and the rail sag for the same light; above 50% the two
-on-times overlap in the middle of the cycle. 100% has not been
-smoke-tested on these LEDs. Bench characterisation runs raise the cap
-knowingly with `make FLASHLIGHT_MAX_PCT=100 flash`;
-`make FLASHLIGHT=0 flash` removes the feature. A board reworked with the IR emitter on Q1-A's pad runs the torch
-on PWM6 alone: `make FLASHLIGHT_CHANNELS=1 flash`. The light is refused while the battery reads low, so a torch
-cannot flatten a fob past the point where it can still advertise.
+latched steps, and nothing in the firmware drives the LEDs harder. On the
+bench 90% runs barely warm; 100% has not been tried.
 
-The fob does not deep-sleep while the light is on.
+The two channels are **interleaved** — PWM8 runs inverted with the
+complementary count, so one LED is on while the other is off. Below 50%
+that halves the peak current and the rail sag for the same light; above
+50% the two on-times overlap in the middle of the cycle.
+
+Knobs: `make FLASHLIGHT_MAX_PCT=100 flash` raises the cap knowingly,
+`make FLASHLIGHT=0 flash` removes the feature, and a board reworked with
+the IR emitter on Q1-A's pad runs the torch on PWM6 alone with
+`make FLASHLIGHT_CHANNELS=1 flash`.
+
+The light is refused while the battery reads low, so a torch cannot
+flatten a fob past the point where it can still advertise. The fob does
+not deep-sleep while the light is on.
 
 ## Pad LEDs
 
@@ -307,14 +342,14 @@ dead under your thumb. It lights on the debounced press, so ~8 ms in.
 A running gesture animation owns its pixel outright, dark phases included, so
 the lower layers cannot fight its blink pattern.
 
-**On the "on air" layer:** every advertisement today is triggered by a
-gesture, and the gesture pattern runs concurrently with the burst — so that
-pattern already *is* the on-air indication, and the white glow is suppressed
-on that pad. Without the suppression a single tap would show a stray white
-tick, because one blink is 210 ms against a 1.2 s burst. What is left is the
-case the layer is for: a chirp with no gesture behind it. There are none yet
-— battery or status chirps would be the first — so on current firmware the
-white glow is unused by design, and wired up ready.
+**On the "on air" layer:** a gesture pattern runs concurrently with its
+burst, so that pattern already *is* the on-air indication, and the white
+glow is suppressed on that pad. Without the suppression a single tap would
+show a stray white tick, because one blink is 210 ms against a 1.2 s burst.
+Status chirps deliberately light nothing: a fob chirping in a drawer every
+five minutes should not flash. So on current firmware the white glow never
+shows; the layer is wired and tested for whatever gesture-less burst comes
+next.
 
 ### Driving the WS2812s
 
@@ -444,9 +479,11 @@ why the driver writes `R32_PB_CLR` to select falling.
 ### Sleep
 
 **On by default** — a plain `make flash` gives you the sleeping build. It was
-off through bring-up, but it has been measured working (a flat 257 µA floor
-held for 12.8 s with no wakes) and it is the difference between a fob that
-lasts a day and one that lasts months.
+off through bring-up, but it has been measured working — a 36 µA floor,
+re-established after every wake, with a press costing about 2 µAh and a
+chirp about 0.13 µAh; see [`docs/power-budget.md`](docs/power-budget.md) —
+and it is the difference between a fob that lasts a day and one that lasts
+months. Two fobs ran over a month on 100 mAh cells on the 5 minute chirp.
 
 For bring-up work where you would rather the chip stayed awake:
 
@@ -468,9 +505,9 @@ which comes from the RTC domain and keeps running — that is also how the wake
 message reports how long it was out.
 
 The loop only considers sleeping once no pad is down, no gesture is
-mid-decode, no animation is running and no advertising burst is outstanding,
-plus `FOB_IDLE_LINGER_MS` of slack so a user between taps of a double-press is
-never cut off.
+mid-decode, no animation is running, no advertising burst is outstanding,
+USB is out and the flashlight is off, plus `FOB_IDLE_LINGER_MS` of slack so
+a user between taps of a double-press is never cut off.
 
 ## Next revision
 
@@ -506,13 +543,31 @@ the bit timing is implicated.
 
 ## Tests
 
-`tests/` compiles the target's own `bthome.c` and `buttons.c` natively
-against a stub `ch32fun.h`, so both are checked by running them rather than
-by reading them. Nothing is reimplemented.
+`tests/` compiles the target's own sources natively against a stub
+`ch32fun.h` (registers become variables) and a link-time I²C fake, so the
+firmware is checked by running it rather than by reading it. Nothing is
+reimplemented. Eleven suites:
 
 ```bash
 make -C tests
 ```
+
+| Suite | Covers |
+|---|---|
+| `test_bthome` | button and status frame layout, 31-byte limit, address handling |
+| `test_buttons` | debounce and every gesture, pad independence, the PB22/PB23 remap |
+| `test_leds` | layering, press glow, on-air suppression, charge layer, brightness ceiling |
+| `test_power` | the sleep/wake register setup: every wake-source bit armed, pins quiesced |
+| `test_charger` | the four AW32001 corrections in order, read-back, repair on revert |
+| `test_chirp` | when the status chirp is due |
+| `test_status` | what the chirp says for each charger state |
+| `test_battery` | supply reading and the battery-low hysteresis |
+| `test_temp` | die temperature against the factory calibration word |
+| `test_flashlight` | duty cap, momentary, latch, dimmer, timeout, low-battery refusal |
+| `test_isp` | the SW1-hold bootloader gesture and its USB check |
+
+The three suites below are described in more detail because they are the
+ones most likely to need extending.
 
 **Packet layout** — checked against the BTHome spec: lengths, the service
 data UUID and device-info byte, ascending object IDs, the 31-byte payload
@@ -556,7 +611,9 @@ firmware/
   isp.c/h        SW1-hold into the ROM bootloader
   libc_shim.c    one strong memset; see the file for why
   include/       freestanding libc headers for Homebrew's GCC
-tests/           host-side packet tests
+tests/           host-side test suites and the ch32fun / I2C stubs
+docs/            charger power path, I2C pull-ups, power budget, next revision
+tools/           Linux udev rule for the WCH ISP bootloader
 ```
 
 ## License
