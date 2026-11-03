@@ -2,6 +2,7 @@
 #include "board.h"
 #include "bthome.h"
 #include "temp.h"
+#include "ccm.h"
 #include <string.h>
 
 /* BTHome service data UUID, 0xFCD2, sent little-endian. */
@@ -27,6 +28,7 @@
 #define BTHOME_OBJ_BATT_LOW  0x15  /* binary, 1 = low */
 #define BTHOME_OBJ_CHARGING  0x16  /* binary, 1 = charging */
 #define BTHOME_OBJ_BUTTON    0x3A
+#define BTHOME_OBJ_COUNT16   0x3D  /* uint16 count */
 #define BTHOME_OBJ_TEXT      0x53  /* [id][len][utf-8...] */
 
 /* WCH's assigned OUI, used to work out which way round the factory address
@@ -194,5 +196,127 @@ int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
 
 	out[len_at] = (uint8_t)(n - len_at - 1);
 
+	return n;
+}
+
+/* ------------------------------------------------------------------ */
+/* Encrypted frames. See bthome.h.                                    */
+/* ------------------------------------------------------------------ */
+
+static void frame_begin(bthome_frame_t *f, uint8_t pdu_header,
+                        const uint8_t mac[6], uint8_t packet_id)
+{
+	uint8_t *o = f->buf;
+	int      n = 0;
+
+	o[n++] = pdu_header;
+	o[n++] = 0; /* filled in by iSLERTX() */
+	for (int i = 0; i < 6; i++)
+		o[n++] = mac[i];
+
+	o[n++] = 0x02;
+	o[n++] = 0x01;
+	o[n++] = 0x06;
+
+	f->svc_len_at = n++;
+	o[n++] = 0x16;
+	o[n++] = BTHOME_UUID_LO;
+	o[n++] = BTHOME_UUID_HI;
+	o[n++] = BTHOME_DEVICE_INFO_ENC;
+	f->payload_at = n;
+
+	/* The packet id is the first object, and encrypted like the rest. */
+	o[n++] = BTHOME_OBJ_PACKET_ID;
+	o[n++] = packet_id;
+	f->len = n;
+}
+
+static void frame_end(bthome_frame_t *f)
+{
+	f->buf[f->svc_len_at] = (uint8_t)(f->len - f->svc_len_at - 1);
+}
+
+void bthome_build_event_frame(bthome_frame_t *f, uint8_t pdu_header,
+                              const uint8_t mac[6],
+                              const uint8_t events[NUM_BUTTONS],
+                              uint8_t packet_id)
+{
+	frame_begin(f, pdu_header, mac, packet_id);
+	/* All four, always: see bthome_build_adv(). */
+	for (int i = 0; i < NUM_BUTTONS; i++) {
+		f->buf[f->len++] = BTHOME_OBJ_BUTTON;
+		f->buf[f->len++] = events[i];
+	}
+	frame_end(f);
+}
+
+void bthome_build_power_frame(bthome_frame_t *f, uint8_t pdu_header,
+                              const uint8_t mac[6], uint8_t packet_id,
+                              const bthome_status_t *st)
+{
+	uint8_t *o = f->buf;
+
+	frame_begin(f, pdu_header, mac, packet_id);
+
+	/* Ascending object ids: 0x00, 0x02, 0x0C, 0x15, 0x16, 0x3D. */
+	if (st->temp_c100 != TEMP_INVALID) {
+		o[f->len++] = BTHOME_OBJ_TEMP;
+		o[f->len++] = (uint8_t)((uint16_t)st->temp_c100 & 0xFF);
+		o[f->len++] = (uint8_t)((uint16_t)st->temp_c100 >> 8);
+	}
+	o[f->len++] = BTHOME_OBJ_VOLTAGE;
+	o[f->len++] = (uint8_t)(st->supply_mv & 0xFF);
+	o[f->len++] = (uint8_t)(st->supply_mv >> 8);
+	o[f->len++] = BTHOME_OBJ_BATT_LOW;
+	o[f->len++] = st->batt_low ? 1 : 0;
+	o[f->len++] = BTHOME_OBJ_CHARGING;
+	o[f->len++] = st->charging ? 1 : 0;
+	/*
+	 * How many times the bindkey has been typed out. After setup it reads
+	 * 1, or 2 with a saved copy; if it ever rises on its own, rekey. Home
+	 * Assistant shows it as a count sensor to alert on (MVP spec 14).
+	 */
+	o[f->len++] = BTHOME_OBJ_COUNT16;
+	o[f->len++] = (uint8_t)st->exposures;
+	o[f->len++] = (uint8_t)(st->exposures >> 8);
+	frame_end(f);
+}
+
+void bthome_build_text_frame(bthome_frame_t *f, uint8_t pdu_header,
+                             const uint8_t mac[6], uint8_t packet_id,
+                             const char *text)
+{
+	const char *t    = text ? text : "";
+	int         tlen = (int)strlen(t);
+
+	if (tlen > BTHOME_TEXT_FRAME_MAX)
+		tlen = BTHOME_TEXT_FRAME_MAX;
+
+	frame_begin(f, pdu_header, mac, packet_id);
+	f->buf[f->len++] = BTHOME_OBJ_TEXT;
+	f->buf[f->len++] = (uint8_t)tlen;
+	for (int i = 0; i < tlen; i++)
+		f->buf[f->len++] = (uint8_t)t[i];
+	frame_end(f);
+}
+
+int bthome_seal(const bthome_frame_t *f, uint8_t *out, const uint8_t mac[6],
+                const uint8_t key[16], uint32_t counter)
+{
+	uint8_t nonce[CCM_NONCE_LEN];
+	int     n = f->len;
+
+	memcpy(out, f->buf, (size_t)n);
+
+	bthome_nonce(nonce, mac, BTHOME_DEVICE_INFO_ENC, counter);
+	ccm_encrypt(key, nonce, out + f->payload_at, n - f->payload_at, out + n + 4);
+
+	out[n++] = (uint8_t)counter;
+	out[n++] = (uint8_t)(counter >> 8);
+	out[n++] = (uint8_t)(counter >> 16);
+	out[n++] = (uint8_t)(counter >> 24);
+	n += CCM_MIC_LEN; /* written in place by ccm_encrypt() above */
+
+	out[f->svc_len_at] = (uint8_t)(f->buf[f->svc_len_at] + 4 + CCM_MIC_LEN);
 	return n;
 }

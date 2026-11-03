@@ -154,6 +154,8 @@ you are changing one — the knob is baked into every object). Defaults are in
 | `HSE_CAP=12` | chip reset | 32 MHz crystal load trim in pF, even values 10–24 |
 | `ISP_HOLD_MS=` / `ISP_REQUIRE_USB=0` | 5000 / 1 | Bootloader gesture length / VBUS check |
 | `SETTLE_US=` / `PULLUPS=` | 250 / — | Wake settling delay / quiesce mode for unused pins |
+| `ENCRYPT=0` | 1 | Plaintext BTHome, frames exactly as the Supercon units sent them |
+| `HID_KEYPAD=0` | 1 | Type the key's digits from the number row instead of the keypad |
 
 **Delivery-rate rig.** The packet id in Home Assistant counts every burst, so
 a fast chirp with sleep off is a direct measurement of how many land:
@@ -228,10 +230,19 @@ the xPack `riscv-none-elf-gcc` builds the same tree unchanged. See
 
 ## Home Assistant
 
-Settings → Devices & Services → **Add integration** → **BTHome**, then press a
-button. The fob advertises as `le-fob` and appears as four button entities
-plus the status entities listed below. No encryption key — this is
-plaintext BTHome v2 for now; encryption is the next piece of work.
+Home Assistant finds the fob by itself under Settings → Devices & Services →
+**Discovered**. It is encrypted (see [Encryption](#encryption)), so HA asks
+for a **bindkey**:
+
+1. Plug the fob into the computer you are using HA on and leave it there.
+2. Click into the bindkey field.
+3. Hold **SW2** (second from the USB port) for 5 s. The pads fill cyan one
+   by one; let go early to cancel. A moment later the fob types the 32
+   characters into the field.
+4. Submit. Four button entities and the status entities below appear.
+
+A plaintext build (`make ENCRYPT=0 flash`) behaves as the Supercon units
+did: **Add integration** → **BTHome**, press a button, no key.
 
 Each gesture maps to a BTHome button event on object `0x3A`:
 
@@ -250,15 +261,22 @@ Timings live in [`firmware/board.h`](firmware/board.h).
 ### Status chirp
 
 Every 5 minutes, once at boot, and whenever USB goes in or out, the fob
-sends a status frame with no button objects:
+sends its status with no button objects. Encrypted, that no longer fits in
+one 31-byte advertisement, so it goes out as two frames, each with its own
+packet id, and HA merges them into the one device:
 
-| Object | Entity | Meaning |
-|---|---|---|
-| `0x02` temperature | Temperature | the CH592 die, ± a few °C; left out if the sensor fails |
-| `0x0C` voltage | Voltage | the 3V3 rail, **not the cell** — see below |
-| `0x15` battery | Battery (binary) | on = low, charge me |
-| `0x16` battery charging | Battery charging | on while the cell is charging |
-| `0x53` text | Text | `USB chg`, `USB done`, `battery`, `fault …`, or `chgr …` (9 chars max) |
+| Frame | Object | Entity | Meaning |
+|---|---|---|---|
+| power | `0x02` temperature | Temperature | the CH592 die, ± a few °C; left out if the sensor fails |
+| power | `0x0C` voltage | Voltage | the 3V3 rail, **not the cell** — see below |
+| power | `0x15` battery | Battery (binary) | on = low, charge me |
+| power | `0x16` battery charging | Battery charging | on while the cell is charging |
+| power | `0x3D` count | Count | bindkey readouts: see [Encryption](#encryption) |
+| text | `0x53` text | Text | `USB chg`, `USB done`, `battery`, `fault …`, or `chgr …` (11 chars max encrypted) |
+
+The power frame is full at 31 bytes. More status on a later board (a fuel
+gauge) gets a third frame; the radio code already queues frames in order.
+The plaintext build sends the single combined frame it always did.
 
 The board has no battery voltage sense. What the chip can measure is its own
 supply, which the 3.3 V regulator holds steady until the cell can no longer
@@ -268,9 +286,48 @@ it sits 60 mV under the highest reading seen since boot. That leaves a
 couple of days of chirps at the 5 min interval — enough for an alert, not a
 fuel gauge.
 
-The status frame has no room for the local name (31 bytes), so it is left
-out; button presses carry it, and Home Assistant keeps the last name it saw
-for the address.
+Encrypted frames have no room for the local name, so HA names the fob
+"BTHome sensor" plus the last four digits of its address until you rename
+it. (The plaintext build still carries `le-fob` in button frames.)
+
+## Encryption
+
+BTHome v2 AES-CCM, on by default. In short:
+
+- **The key is born on the fob.** On first boot, or the first after its
+  DataFlash is erased, the fob fills a pool from temperature-sensor ADC noise
+  and the beat between its two crystals, mixes in its factory MAC (so no two
+  fobs can ever share a key, even if the noise were identical), and
+  conditions it with AES-CBC-MAC on the chip's AES block. Nobody else ever
+  has the key; there is no list.
+- **Reading it out:** hold SW2 alone for 5 s while enumerated on USB (cyan
+  fuse); the fob types 32 lowercase hex characters into whatever has focus,
+  and nothing else. Digits go out as keypad keys, which work on every
+  keyboard layout; if the host reports NumLock off, the fob presses NumLock
+  before and after. The hold must start *after* the fob is plugged in.
+- **Exposure count:** every readout bumps the `0x3D` count *before* typing.
+  After setup it reads 1, or 2 if you also saved a copy. If it ever goes up
+  on its own, rekey. Build an HA alert on it; nobody watches a count sensor
+  unprompted.
+- **Rekey:** hold SW2 + SW3 for 10 s on USB (red fuse). New key, exposure
+  count back to 0, then HA needs the new key. The counter keeps climbing, so
+  nothing sent under the old key replays under the new one.
+- **Replay counter:** starts at 1000 (HA exempts counters below 100 from its
+  replay check), takes a fresh value for every advertising round, and only
+  ever goes up — across sleep, flat batteries, reboots and firmware updates.
+  It is persisted as a reservation 1024 values ahead in a journaled
+  DataFlash ring, topped up when it runs low, never while the torch is on,
+  and resumed from the highest reservation ever written. A fob that cannot
+  persist its counter sends nothing.
+
+What it does not do: hide the MAC (BTHome puts it in the nonce, so it cannot
+rotate), or stop someone holding the fob from reading the key — that is the
+trade for no app and no QR code, and why the exposure count exists. The
+design and its reasoning are in the MVP spec.
+
+**Not yet checked on hardware:** whether `make flash` (WCH ISP) leaves
+DataFlash alone. If it erases it, every reflash makes a new key and needs
+re-pairing.
 
 ## Flashlight
 
@@ -544,7 +601,8 @@ the bit timing is implicated.
 `tests/` compiles the target's own sources natively against a stub
 `ch32fun.h` (registers become variables) and a link-time I²C fake, so the
 firmware is checked by running it rather than by reading it. Nothing is
-reimplemented. Eleven suites:
+reimplemented, except the AES block and DataFlash, which get a software AES
+and a RAM fake that can cut power mid-write. Fifteen suites:
 
 ```bash
 make -C tests
@@ -552,7 +610,7 @@ make -C tests
 
 | Suite | Covers |
 |---|---|
-| `test_bthome` | button and status frame layout, 31-byte limit, address handling |
+| `test_bthome` | plaintext and encrypted frame layout, 31-byte limit, sealed frames decrypted back, address handling |
 | `test_buttons` | debounce and every gesture, pad independence, the PB22/PB23 remap |
 | `test_leds` | layering, press glow, on-air suppression, charge layer, brightness ceiling |
 | `test_power` | the sleep/wake register setup: every wake-source bit armed, pins quiesced |
@@ -563,6 +621,10 @@ make -C tests
 | `test_temp` | die temperature against the factory calibration word |
 | `test_flashlight` | duty cap, momentary, latch, dimmer, timeout, low-battery refusal |
 | `test_isp` | the SW1-hold bootloader gesture and its USB check |
+| `test_ccm` | AES-CCM against FIPS-197 and BTHome's published encrypted frame, tamper and replay rejection |
+| `test_keystore` | key and counter journal: 500 random power cuts mid-write, corrupt records, erased flash, wear, the 2^32 ceiling |
+| `test_entropy` | key conditioning and the stuck-source tripwire |
+| `test_keyhold` | SW2 export / SW2+SW3 rekey holds and their USB rules; the typed key sequence and NumLock handling |
 
 The three suites below are described in more detail because they are the
 ones most likely to need extending.
@@ -607,9 +669,17 @@ firmware/
   status.c/h     what the status chirp says
   chirp.c/h      when the status chirp is due
   isp.c/h        SW1-hold into the ROM bootloader
+  aes.h          one AES-128 block; aes_hw.c drives the CH592's AES peripheral
+  ccm.c/h        AES-CCM as BTHome uses it, plus the CBC-MAC conditioner
+  keystore.c/h   bindkey, replay-counter reservation, exposure count journal
+  dataflash.c/h  DataFlash read / program / page erase, from RAM
+  entropy.c/h    noise pool and key generation
+  keyhold.c/h    SW2 key-export and SW2+SW3 rekey holds
+  hidtype.c/h    the key as a sequence of keyboard reports
+  usb_hid.c/h    USB keyboard on ch32fun's fsusb; usb_config.h has its descriptors
   libc_shim.c    one strong memset; see the file for why
   include/       freestanding libc headers for Homebrew's GCC
-tests/           host-side test suites and the ch32fun / I2C stubs
+tests/           host-side test suites and the ch32fun / I2C / AES / DataFlash stubs
 docs/            charger power path, I2C pull-ups, power budget, next revision
 tools/           Linux udev rule for the WCH ISP bootloader
 ```

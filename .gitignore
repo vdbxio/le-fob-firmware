@@ -31,3 +31,7 @@
 /tests/test_battery
 /tests/test_temp
 /tests/test_flashlight
+/tests/test_ccm
+/tests/test_keystore
+/tests/test_entropy
+/tests/test_keyhold

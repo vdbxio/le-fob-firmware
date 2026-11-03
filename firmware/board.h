@@ -659,4 +659,97 @@ _Static_assert(ADV_ROUND_INTERVAL_MS >= 2,
 #define FOB_IDLE_LINGER_MS 400
 #endif
 
+/* ------------------------------------------------------------------ */
+/* Encryption                                                         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * BTHome AES-CCM with a bindkey the fob generates for itself on first boot.
+ * 0 builds the plaintext fob as it shipped for Supercon, frames and all:
+ *
+ *     make ENCRYPT=0 flash
+ */
+#ifndef FOB_ENCRYPT
+#define FOB_ENCRYPT 1
+#endif
+
+/*
+ * Replay counter policy (MVP spec section 11). Home Assistant exempts
+ * counters below 100 from its replay check, so the fob starts well clear
+ * of that and never comes back down.
+ */
+#ifndef KS_COUNTER_START
+#define KS_COUNTER_START 1000u
+#endif
+
+/*
+ * Counter values reserved per DataFlash write, and how close to the end of
+ * the window a top-up happens. Every advertising round takes a fresh value
+ * (a button burst is ADV_BURST_ROUNDS of them), so 1024 is a handful of
+ * writes a day with the chirp running, and about that many values thrown
+ * away per reboot -- which costs nothing out of 2^32.
+ */
+#ifndef KS_RESERVE
+#define KS_RESERVE 1024u
+#endif
+#ifndef KS_LOW_WATER
+#define KS_LOW_WATER 64u
+#endif
+
+/*
+ * Where the journal lives: KS_PAGES 256-byte pages from this offset into
+ * DataFlash. 16 pages hold 128 records, so each page is erased once per
+ * 128 writes -- a few times a month at the rates above.
+ */
+#ifndef KS_FLASH_OFFSET
+#define KS_FLASH_OFFSET 0u
+#endif
+#ifndef KS_PAGES
+#define KS_PAGES 16u
+#endif
+#ifndef KS_WRITE_ATTEMPTS
+#define KS_WRITE_ATTEMPTS 3
+#endif
+
+/*
+ * Bindkey readout: hold SW2 alone, on USB, this long (ms) and the fob types
+ * the key into whatever has focus. The cyan fuse fills over the last part,
+ * from KEY_EXPORT_ARM_MS. Rekey is SW2 + SW3 for REKEY_HOLD_MS, red fuse.
+ */
+#ifndef KEY_EXPORT_HOLD_MS
+#define KEY_EXPORT_HOLD_MS 5000
+#endif
+#ifndef KEY_EXPORT_ARM_MS
+#define KEY_EXPORT_ARM_MS 2000
+#endif
+#ifndef REKEY_HOLD_MS
+#define REKEY_HOLD_MS 10000
+#endif
+#ifndef REKEY_ARM_MS
+#define REKEY_ARM_MS 4000
+#endif
+
+/*
+ * How the key is typed (MVP spec section 13 and open decision 1).
+ *
+ * Digits go out as numeric-keypad keys, which mean the same digit on every
+ * keyboard layout -- the number row does not (AZERTY needs Shift for it).
+ * If the host reports NumLock off, the fob presses NumLock first and again
+ * after, so the keypad types digits rather than arrows. A to F go out as
+ * plain lowercase letters; of the common layouts only AZERTY moves one of
+ * them (A). `make HID_KEYPAD=0 flash` types digits from the number row.
+ *
+ * HID_LEAD_MS gives the target field a moment after the hold completes;
+ * HID_KEY_MS is how long each key is held and then released.
+ */
+#ifndef HID_KEYPAD_DIGITS
+#define HID_KEYPAD_DIGITS 1
+#endif
+#ifndef HID_LEAD_MS
+#define HID_LEAD_MS 500
+#endif
+#ifndef HID_KEY_MS
+#define HID_KEY_MS 15
+#endif
+
 #endif /* LE_FOB_BOARD_H */

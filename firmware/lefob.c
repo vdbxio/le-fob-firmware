@@ -23,6 +23,7 @@
 
 #include "ch32fun.h"
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "bthome.h"
@@ -37,6 +38,10 @@
 #include "battery.h"
 #include "flashlight.h"
 #include "isp.h"
+#include "keystore.h"
+#include "entropy.h"
+#include "keyhold.h"
+#include "usb_hid.h"
 
 /* Milliseconds since boot. Read by the main loop, written only by the
  * SysTick ISR. */
@@ -91,6 +96,16 @@ static void banner(void)
 	       ADV_ROUND_INTERVAL_MS);
 	printf("isp    hold SW1 %d ms%s\n", ISP_HOLD_MS,
 	       FOB_ISP_REQUIRE_USB ? " (USB must be present)" : "");
+	if (!FOB_ENCRYPT)
+		printf("crypt  OFF (FOB_ENCRYPT=0): plaintext BTHome\n");
+	else if (!keystore_key())
+		printf("crypt  NO KEY: radio stays silent (DataFlash write failed?)\n");
+	else
+		printf("crypt  AES-CCM, counter %lu (window to %lu), key read out %u times\n"
+		       "       SW2 %d ms on USB types the key; SW2+SW3 %d ms rekeys\n",
+		       (unsigned long)keystore_counter_peek(),
+		       (unsigned long)keystore_counter_limit(),
+		       keystore_exposures(), KEY_EXPORT_HOLD_MS, REKEY_HOLD_MS);
 	{
 		/* Crystal load trim as the chip is actually running it: the
 		 * register encodes (pF - 10) / 2 in bits 6:4. */
@@ -194,7 +209,15 @@ static void isp_enter(void)
 	Delay_Ms(150);
 	pads_solid(0, 0, 0);
 
-	/* Nothing of ours may fire once the bootloader has the vector table. */
+	/*
+	 * Nothing of ours may fire once the bootloader has the vector table.
+	 * That includes the USB keyboard: the bootloader brings USB up itself
+	 * and must find the block reset and detached, not mid-enumeration.
+	 */
+#if FOB_ENCRYPT
+	usb_hid_stop();
+	Delay_Ms(50); /* let the host see the detach */
+#endif
 	SysTick->CTLR = 0;
 	NVIC_DisableIRQ(SysTick_IRQn);
 	NVIC_DisableIRQ(GPIOA_IRQn);
@@ -203,6 +226,71 @@ static void isp_enter(void)
 
 	jump_isprom();
 }
+
+#if FOB_ENCRYPT
+/*
+ * Make, or load, the bindkey and open a counter window. First boot (or the
+ * first after DataFlash was erased) generates the key here, from on-chip
+ * noise; nothing outside the fob ever supplies one.
+ *
+ * Runs at boot, before the torch can be on, so a flash write here never
+ * shares the rail with it.
+ */
+static void crypto_init(void)
+{
+	if (keystore_open() == KS_EMPTY) {
+		uint8_t key[16];
+		int     healthy = entropy_generate_key(ble_adv_mac(), key);
+
+		printf("crypt  first boot: new key%s\n",
+		       healthy ? "" : " -- ENTROPY LOOKED STUCK, key is weak");
+		if (!keystore_provision(key))
+			printf("crypt  could not store the key\n");
+		memset(key, 0, sizeof(key));
+	} else if (!keystore_reserve()) {
+		printf("crypt  could not reserve counters: radio stays silent\n");
+	}
+	ble_adv_set_key(keystore_key());
+}
+
+/* Every pad one colour for a moment: the key handling's yes / no. */
+static void pads_flash(uint8_t r, uint8_t g, uint8_t b, int times)
+{
+	for (int i = 0; i < times; i++) {
+		pads_solid(r, g, b);
+		Delay_Ms(120);
+		pads_solid(0, 0, 0);
+		Delay_Ms(120);
+	}
+	led_anim_invalidate();
+}
+
+static void key_hold_fired(keyhold_event_t ev, uint32_t now)
+{
+	const uint8_t v = (uint8_t)((255 * PAD_LED_BRIGHTNESS_PCT) / 100);
+
+	if (ev == KEYHOLD_EXPORT) {
+		/* Counted and persisted before a single character goes out. */
+		if (!keystore_key() || !keystore_bump_exposure()) {
+			printf("key    readout refused: exposure count not saved\n");
+			pads_flash(v, 0, 0, 3);
+			return;
+		}
+		printf("key    typing it out (readout #%u)\n", keystore_exposures());
+		usb_hid_type_key(keystore_key(), now);
+	} else if (ev == KEYHOLD_REKEY) {
+		uint8_t key[16];
+		int     healthy = entropy_generate_key(ble_adv_mac(), key);
+		int     ok      = keystore_rekey(key);
+
+		memset(key, 0, sizeof(key));
+		printf("key    rekey %s%s\n", ok ? "done" : "FAILED",
+		       healthy ? "" : " (entropy looked stuck)");
+		ble_adv_set_key(keystore_key());
+		pads_flash(ok ? 0 : v, ok ? v : 0, 0, 3);
+	}
+}
+#endif
 
 int main(void)
 {
@@ -220,6 +308,10 @@ int main(void)
 
 	if (!FOB_DISABLE_RADIO)
 		ble_adv_init();
+
+#if FOB_ENCRYPT
+	crypto_init();
+#endif
 
 	if (FOB_ENABLE_CHARGER)
 		charger_init();
@@ -301,7 +393,34 @@ int main(void)
 			/* SW1 held alone long enough -> bootloader (see isp.h). */
 			if (isp_hold_tick(buttons_pressed_mask(), now))
 				isp_enter(); /* returns only if it refused */
+
+#if FOB_ENCRYPT
+			/* Never program DataFlash under the torch's sag. */
+			ble_adv_allow_flash_writes(!flashlight_on());
+
+			/* SW2 / SW2+SW3 holds: type the key, or rekey. */
+			keyhold_event_t kev = keyhold_tick(
+				buttons_pressed_mask(),
+				usb_hid_ready() && !usb_hid_busy() && !flashlight_on(),
+				now);
+
+			if (kev != KEYHOLD_NONE)
+				key_hold_fired(kev, now);
+			usb_hid_tick(now);
+
+			/* One fuse at a time; all pads cyan while typing. */
+			if (isp_hold_progress())
+				led_anim_set_arming(isp_hold_progress());
+			else if (usb_hid_busy())
+				led_anim_set_arming_kind(255, LED_ARMING_KEY_EXPORT);
+			else
+				led_anim_set_arming_kind(keyhold_progress(),
+				                         keyhold_arming() == KEYHOLD_REKEY
+				                         ? LED_ARMING_REKEY
+				                         : LED_ARMING_KEY_EXPORT);
+#else
 			led_anim_set_arming(isp_hold_progress());
+#endif
 
 			led_anim_tick(now);
 
@@ -367,6 +486,13 @@ int main(void)
 				if (on_usb != (mode != LED_CHARGE_OFF)) {
 					on_usb = mode != LED_CHARGE_OFF;
 					printf("usb    %s\n", on_usb ? "in" : "out");
+#if FOB_ENCRYPT
+					/* The keyboard exists only while plugged in. */
+					if (on_usb)
+						usb_hid_start();
+					else
+						usb_hid_stop();
+#endif
 				}
 				led_anim_set_charge(mode);
 			}
@@ -380,6 +506,9 @@ int main(void)
 					bthome_status_t st;
 
 					status_collect(&st);
+#if FOB_ENCRYPT
+					st.exposures = keystore_exposures();
+#endif
 					printf("status %s, %u mV%s%s\n", st.text,
 					       st.supply_mv,
 					       st.charging ? ", charging" : "",
@@ -395,7 +524,7 @@ int main(void)
 				linger = FOB_IDLE_LINGER_MS;
 			}
 			if (buttons_busy() || led_anim_busy() || ble_adv_busy() ||
-			    flashlight_on())
+			    flashlight_on() || (FOB_ENCRYPT && usb_hid_busy()))
 				t_active = now;
 		}
 

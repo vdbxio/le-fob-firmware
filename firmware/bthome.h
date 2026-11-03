@@ -5,7 +5,8 @@
 #include "board.h"
 
 /*
- * BTHome v2 (unencrypted) advertisement builder.
+ * BTHome v2 advertisement builder: the plaintext frames first (what an
+ * ENCRYPT=0 build sends), then the encrypted ones further down.
  * Format per https://bthome.io/format/ — service data UUID 0xFCD2.
  */
 
@@ -50,6 +51,7 @@ typedef struct {
 	uint8_t     batt_low;   /* 0x15 battery low                          */
 	uint8_t     charging;   /* 0x16 battery charging                     */
 	const char *text;       /* 0x53 text: charger state, or why not      */
+	uint16_t    exposures;  /* 0x3D count: bindkey readouts (encrypted only) */
 } bthome_status_t;
 
 /*
@@ -72,5 +74,64 @@ int bthome_build_status_adv(uint8_t *out, uint8_t pdu_header,
 
 /* Largest value either builder can return, for sizing buffers. */
 #define BTHOME_ADV_MAX 40
+
+/* ------------------------------------------------------------------ */
+/* Encrypted frames                                                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * An encrypted advertisement is built in two steps. A builder lays out the
+ * frame with its payload still in plaintext; bthome_seal() then encrypts a
+ * copy under a given counter, ready for the radio. The radio side keeps
+ * the plaintext frame and seals it afresh for every round, so each repeat
+ * goes out under its own counter value.
+ *
+ * Encryption costs 8 bytes of the 31-byte legacy payload (4 counter + 4
+ * MIC), so the layouts differ from the plaintext ones above:
+ *
+ *   event   flags, packet id, four buttons. No local name: it no longer
+ *           fits, and Home Assistant names the device by its MAC suffix.
+ *   power   packet id, temperature, voltage, battery low, charging,
+ *           bindkey exposure count (0x3D) -- exactly 31 bytes
+ *   text    packet id, text of up to BTHOME_TEXT_FRAME_MAX characters
+ *
+ * The status chirp sends power and text as two frames with two packet
+ * ids; Home Assistant merges both into the one device. The power frame is
+ * full, so a fuel gauge on a later board gets a third frame of its own --
+ * the radio side already queues frames in sequence.
+ */
+
+typedef struct {
+	uint8_t buf[BTHOME_ADV_MAX];
+	int     len;         /* bytes used, plaintext payload included */
+	int     svc_len_at;  /* the service-data AD's length byte */
+	int     payload_at;  /* first byte after the device-info byte */
+} bthome_frame_t;
+
+/* Characters a text frame carries once encrypted. */
+#define BTHOME_TEXT_FRAME_MAX 11
+
+/* Device-info byte for the encrypted frames: v2, trigger based, encrypted. */
+#define BTHOME_DEVICE_INFO_ENC 0x45
+
+void bthome_build_event_frame(bthome_frame_t *f, uint8_t pdu_header,
+                              const uint8_t mac[6],
+                              const uint8_t events[NUM_BUTTONS],
+                              uint8_t packet_id);
+
+void bthome_build_power_frame(bthome_frame_t *f, uint8_t pdu_header,
+                              const uint8_t mac[6], uint8_t packet_id,
+                              const bthome_status_t *st);
+
+void bthome_build_text_frame(bthome_frame_t *f, uint8_t pdu_header,
+                             const uint8_t mac[6], uint8_t packet_id,
+                             const char *text);
+
+/*
+ * Encrypt a copy of `f` into `out` under `key` and `counter`, appending the
+ * counter and MIC. Returns the length to hand to iSLERTX().
+ */
+int bthome_seal(const bthome_frame_t *f, uint8_t *out, const uint8_t mac[6],
+                const uint8_t key[16], uint32_t counter);
 
 #endif /* LE_FOB_BTHOME_H */

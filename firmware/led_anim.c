@@ -121,6 +121,7 @@ static const uint8_t colour_white[3] = { 255, 255, 255 };
 static const uint8_t colour_red[3]   = { 255, 0,   0   };
 static const uint8_t colour_magenta[3] = { 255, 0, 255 };
 static const uint8_t colour_green[3] = { 0,   255, 0   };
+static const uint8_t colour_cyan[3]  = { 0,   255, 255 };
 
 /* Scale 0..255 by a 0..255 level and then by the global brightness cap.
  * Done in one 32-bit multiply chain to avoid two rounding steps. */
@@ -195,11 +196,28 @@ void led_anim_set_tx(int button)
 	tx_button = (int8_t)button;
 }
 
-static uint8_t arming;
+static uint8_t      arming;
+static led_arming_t arming_kind;
 
 void led_anim_set_arming(uint8_t progress)
 {
-	arming = progress;
+	arming      = progress;
+	arming_kind = LED_ARMING_BOOTLOADER;
+}
+
+void led_anim_set_arming_kind(uint8_t progress, led_arming_t kind)
+{
+	arming      = progress;
+	arming_kind = kind;
+}
+
+static const uint8_t *arming_colour(void)
+{
+	switch (arming_kind) {
+	case LED_ARMING_KEY_EXPORT: return colour_cyan;
+	case LED_ARMING_REKEY:      return colour_red;
+	default:                    return colour_white;
+	}
 }
 
 void led_anim_trigger(uint8_t button, uint8_t event, uint32_t now)
@@ -300,15 +318,18 @@ void led_anim_tick(uint32_t now)
 
 		if (arming) {
 			/*
-			 * Bootloader fuse: pad i lights once progress has crossed
-			 * its share of the window, so the four fill in SW1..SW4.
-			 * Everything else is hidden while this is up.
+			 * Hold fuse: pad i lights once progress has crossed its
+			 * share of the window, so the four fill in SW1..SW4.
+			 * Everything else is hidden while this is up. White for
+			 * the bootloader, cyan for key export, red for rekey, so
+			 * the three holds cannot be mistaken for each other.
 			 */
-			int lit = (arming * WS2812_COUNT) > (i * 255);
+			int            lit = (arming * WS2812_COUNT) > (i * 255);
+			const uint8_t *ac  = arming_colour();
 
-			fb[i * 3 + 0] = lit ? scale(colour_white[1], TX_LEVEL) : 0;
-			fb[i * 3 + 1] = lit ? scale(colour_white[0], TX_LEVEL) : 0;
-			fb[i * 3 + 2] = lit ? scale(colour_white[2], TX_LEVEL) : 0;
+			fb[i * 3 + 0] = lit ? scale(ac[1], TX_LEVEL) : 0;
+			fb[i * 3 + 1] = lit ? scale(ac[0], TX_LEVEL) : 0;
+			fb[i * 3 + 2] = lit ? scale(ac[2], TX_LEVEL) : 0;
 			continue;
 		}
 
