@@ -17,7 +17,15 @@
 #include "ch5xx_flash.h"
 #include "dataflash.h"
 
-#define DATAFLASH_BASE 0x00070000u
+/*
+ * Where DataFlash sits in the flash controller's command address space.
+ *
+ * It is mapped for pointer reads at 0x00070000, but WCH's own
+ * FLASH_EEPROM_CMD (libISP592.a, disassembled) addresses it for commands
+ * at 0x00070000 | 0x00080000: the controller wants bit 19 set to pick the
+ * data area. Commands sent to 0x00070000 land in the code area instead.
+ */
+#define DATAFLASH_BASE (0x00070000u | 0x00080000u)
 
 #define FLASH_CMD_FAST_READ    0x0B
 #define FLASH_CMD_PAGE_PROGRAM 0x02
@@ -56,23 +64,15 @@ int df_write(uint32_t off, const uint8_t *buf, int len)
 		return 0;
 
 	/*
-	 * Page program, the same sequence as the library's cmd_write() -- which
-	 * is not itself placed in RAM, so it cannot be called with the
-	 * controller in write mode. One word at a time through R32_FLASH_DATA,
-	 * each byte clocked out by a write of 0x15 to the control register.
+	 * Page program the way WCH's FLASH_EEPROM_CMD does it for the data
+	 * area: one byte at a time through the data register, then wait. (The
+	 * library's cmd_write() uses the word-wide code-area sequence instead,
+	 * which is not what the data area expects.)
 	 */
 	ch5xx_flash_rom_open_erase_write();
 	ch5xx_flash_rom_addr(FLASH_CMD_PAGE_PROGRAM, DATAFLASH_BASE + off);
-	for (int i = 0; i < len; i += 4) {
-		R32_FLASH_DATA = (uint32_t)buf[i] | (uint32_t)buf[i + 1] << 8 |
-		                 (uint32_t)buf[i + 2] << 16 |
-		                 (uint32_t)buf[i + 3] << 24;
-		for (int b = 0; b < 4; b++) {
-			while ((int8_t)R8_FLASH_CTRL < 0)
-				;
-			R8_FLASH_CTRL = 0x15;
-		}
-	}
+	for (int i = 0; i < len; i++)
+		ch5xx_flash_rom_out(buf[i]);
 	uint8_t ok = ch5xx_flash_rom_wait();
 	ch5xx_flash_rom_close();
 
