@@ -673,6 +673,12 @@ _Static_assert(ADV_ROUND_INTERVAL_MS >= 2,
 #define FOB_ENCRYPT 1
 #endif
 
+/* Colour the pads through each stage of key setup at boot, for a board
+ * with no console: `make BOOT_TRACE=1 flash`. See crypto_init(). */
+#ifndef FOB_BOOT_TRACE
+#define FOB_BOOT_TRACE 0
+#endif
+
 /*
  * Replay counter policy (MVP spec section 11). Home Assistant exempts
  * counters below 100 from its replay check, so the fob starts well clear

@@ -236,21 +236,50 @@ static void isp_enter(void)
  * Runs at boot, before the torch can be on, so a flash write here never
  * shares the rail with it.
  */
+/*
+ * BOOT_TRACE=1 builds leave a colour on the pads at each stage of
+ * crypto_init(), so a board with no console still shows where it stopped:
+ * blue = reading DataFlash, cyan = making a key, magenta = writing it,
+ * yellow = reserving counters, green for a moment = done.
+ */
+static void trace(uint8_t r, uint8_t g, uint8_t b)
+{
+#if FOB_BOOT_TRACE
+	const uint8_t v = (uint8_t)((255 * PAD_LED_BRIGHTNESS_PCT) / 100);
+
+	pads_solid(r ? v : 0, g ? v : 0, b ? v : 0);
+	Delay_Ms(300);
+#else
+	(void)r; (void)g; (void)b;
+#endif
+}
+
 static void crypto_init(void)
 {
+	trace(0, 0, 1);
 	if (keystore_open() == KS_EMPTY) {
 		uint8_t key[16];
-		int     healthy = entropy_generate_key(ble_adv_mac(), key);
+
+		trace(0, 1, 1);
+		int healthy = entropy_generate_key(ble_adv_mac(), key);
 
 		printf("crypt  first boot: new key%s\n",
 		       healthy ? "" : " -- ENTROPY LOOKED STUCK, key is weak");
+		trace(1, 0, 1);
 		if (!keystore_provision(key))
 			printf("crypt  could not store the key\n");
 		memset(key, 0, sizeof(key));
-	} else if (!keystore_reserve()) {
-		printf("crypt  could not reserve counters: radio stays silent\n");
+	} else {
+		trace(1, 1, 0);
+		if (!keystore_reserve())
+			printf("crypt  could not reserve counters: radio stays silent\n");
 	}
 	ble_adv_set_key(keystore_key());
+	trace(0, 1, 0);
+#if FOB_BOOT_TRACE
+	pads_solid(0, 0, 0);
+	led_anim_invalidate();
+#endif
 }
 
 /* Every pad one colour for a moment: the key handling's yes / no. */

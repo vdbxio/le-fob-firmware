@@ -54,6 +54,7 @@ EXTRA_CFLAGS += -ffreestanding -Iinclude
 #   make SETTLE_US=1000 flash   longer clock settle after wake
 #   make ENCRYPT=0 flash        plaintext BTHome, as shipped for Supercon
 #   make HID_KEYPAD=0 flash     type key digits from the number row
+#   make BOOT_TRACE=1 flash     pads show each key-setup stage at boot
 #
 # Two things went wrong with the EXTRA_CFLAGS way and this replaces it:
 #
@@ -111,6 +112,9 @@ EXTRA_CFLAGS += -DFOB_WAKE_SETTLE_US=$(SETTLE_US)
 endif
 ifdef ENCRYPT
 EXTRA_CFLAGS += -DFOB_ENCRYPT=$(ENCRYPT)
+endif
+ifdef BOOT_TRACE
+EXTRA_CFLAGS += -DFOB_BOOT_TRACE=$(BOOT_TRACE)
 endif
 ifdef HID_KEYPAD
 EXTRA_CFLAGS += -DHID_KEYPAD_DIGITS=$(HID_KEYPAD)
