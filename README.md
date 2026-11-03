@@ -325,9 +325,10 @@ rotate), or stop someone holding the fob from reading the key — that is the
 trade for no app and no QR code, and why the exposure count exists. The
 design and its reasoning are in the MVP spec.
 
-**Not yet checked on hardware:** whether `make flash` (WCH ISP) leaves
-DataFlash alone. If it erases it, every reflash makes a new key and needs
-re-pairing.
+**Checked on a board (2026-11-03):** `make flash` through the WCH ISP
+bootloader leaves DataFlash alone. The same key types out before and after
+a reflash, so a firmware update never un-pairs the fob. A full-chip erase
+would; that is the point (MVP spec section 10).
 
 ## Flashlight
 
