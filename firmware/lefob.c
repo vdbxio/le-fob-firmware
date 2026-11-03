@@ -60,11 +60,24 @@ void SysTick_Handler(void)
 	 * from the current count. If this interrupt is ever late -- and it will
 	 * be, by up to ~120 us whenever the WS2812 chain is refreshed with
 	 * interrupts off -- the lateness does not accumulate into the clock.
+	 *
+	 * Late by more than a whole millisecond is a different matter. The
+	 * counter only matches the compare value on its way past, so a compare
+	 * left behind the count would not fire again until the 64-bit counter
+	 * wrapped: the tick, and with it the main loop, would simply stop.
+	 * That is exactly what a DataFlash erase does (several ms with
+	 * interrupts off, see dataflash.c), so catch up: step the compare
+	 * forward until it is ahead of the count, counting each missed
+	 * millisecond so the clock stays right.
 	 */
 	SysTick->CMP += SYSTICK_PER_MS;
 	SysTick->SR   = 0;
-
 	g_millis++;
+
+	while ((int64_t)(SysTick->CNT - SysTick->CMP) >= 0) {
+		SysTick->CMP += SYSTICK_PER_MS;
+		g_millis++;
+	}
 	g_tick = 1;
 }
 
