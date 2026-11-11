@@ -16,6 +16,15 @@ ADDITIONAL_C_FILES := \
 	temp.c \
 	flashlight.c \
 	isp.c \
+	aes_hw.c \
+	ccm.c \
+	dataflash.c \
+	keystore.c \
+	entropy.c \
+	keyhold.c \
+	hidtype.c \
+	usb_hid.c \
+	../ch32fun/extralibs/fsusb.c \
 	libc_shim.c
 
 CH32FUN := ../ch32fun/ch32fun
@@ -43,6 +52,9 @@ EXTRA_CFLAGS += -ffreestanding -Iinclude
 #   make PULLUPS=0 flash        no internal pull-ups on unused pins
 #   make CHIRP_MS=300000 flash  chirp every 5 min (0 = never)
 #   make SETTLE_US=1000 flash   longer clock settle after wake
+#   make ENCRYPT=0 flash        plaintext BTHome, as shipped for Supercon
+#   make HID_KEYPAD=0 flash     type key digits from the number row
+#   make BOOT_TRACE=1 flash     pads show each key-setup stage at boot
 #
 # Two things went wrong with the EXTRA_CFLAGS way and this replaces it:
 #
@@ -97,6 +109,15 @@ EXTRA_CFLAGS += -DCHIRP_INTERVAL_MS=$(CHIRP_MS)
 endif
 ifdef SETTLE_US
 EXTRA_CFLAGS += -DFOB_WAKE_SETTLE_US=$(SETTLE_US)
+endif
+ifdef ENCRYPT
+EXTRA_CFLAGS += -DFOB_ENCRYPT=$(ENCRYPT)
+endif
+ifdef BOOT_TRACE
+EXTRA_CFLAGS += -DFOB_BOOT_TRACE=$(BOOT_TRACE)
+endif
+ifdef HID_KEYPAD
+EXTRA_CFLAGS += -DHID_KEYPAD_DIGITS=$(HID_KEYPAD)
 endif
 # Transmit power in dBm: one of -25 -20 -15 -10 -8 -5 -3 -1 0 1 2 3 4 5 6 7
 # (the LL_TX_POWER_* table in ch5xxhw.h). `make TXPOWER=7 flash`.

@@ -13,7 +13,7 @@ CFLAGS := -Wall -Wextra -O1 -g -Istub \
 .PHONY: all clean
 all : run
 
-test_bthome : test_bthome.c ../firmware/bthome.c
+test_bthome : test_bthome.c ../firmware/bthome.c ../firmware/ccm.c stub/aes_soft.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 test_buttons : test_buttons.c ../firmware/buttons.c
@@ -46,7 +46,19 @@ test_status : test_status.c ../firmware/status.c
 test_isp : test_isp.c ../firmware/isp.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp test_battery test_temp test_flashlight
+test_ccm : test_ccm.c ../firmware/ccm.c stub/aes_soft.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_keystore : test_keystore.c ../firmware/keystore.c stub/dataflash_fake.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_keyhold : test_keyhold.c ../firmware/keyhold.c ../firmware/hidtype.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_entropy : test_entropy.c ../firmware/entropy.c ../firmware/ccm.c stub/aes_soft.c
+	$(CC) $(CFLAGS) -DLEFOB_HOST_TEST -o $@ $^
+
+run : test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp test_battery test_temp test_flashlight test_ccm test_keystore test_entropy test_keyhold
 	./test_bthome
 	./test_buttons
 	./test_leds
@@ -58,6 +70,10 @@ run : test_bthome test_buttons test_leds test_power test_charger test_chirp test
 	./test_battery
 	./test_temp
 	./test_flashlight
+	./test_ccm
+	./test_keystore
+	./test_entropy
+	./test_keyhold
 
 clean :
-	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp test_battery test_temp test_flashlight *.dSYM
+	rm -rf test_bthome test_buttons test_leds test_power test_charger test_chirp test_status test_isp test_battery test_temp test_flashlight test_ccm test_keystore test_entropy test_keyhold *.dSYM

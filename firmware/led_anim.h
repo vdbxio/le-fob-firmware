@@ -52,6 +52,19 @@ void led_anim_set_charge(led_charge_t mode);
  */
 void led_anim_set_arming(uint8_t progress);
 
+/*
+ * The same fuse for the other long holds, in their own colour. Whichever
+ * of the two calls ran last in a tick decides what shows, so the main loop
+ * calls exactly one of them per tick.
+ */
+typedef enum {
+	LED_ARMING_BOOTLOADER = 0, /* white */
+	LED_ARMING_KEY_EXPORT,     /* cyan  */
+	LED_ARMING_REKEY,          /* red   */
+} led_arming_t;
+
+void led_anim_set_arming_kind(uint8_t progress, led_arming_t kind);
+
 /* Recompute and, if anything changed, push a frame. Cheap to call every
  * millisecond; it rate-limits its own refreshes internally. */
 void led_anim_tick(uint32_t now);

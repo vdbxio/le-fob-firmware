@@ -16,6 +16,7 @@
 #include "../firmware/board.h"
 #include "../firmware/bthome.h"
 #include "../firmware/temp.h"
+#include "../firmware/ccm.h"
 
 /* Storage that LEFOB_ROM_MAC_ADDR is redirected at (see tests/Makefile). */
 uint8_t g_fake_rom[6];
@@ -217,9 +218,116 @@ static void test_address_order(void)
 	check(memcmp(first, mac, 6) == 0, "synthesised address is stable");
 }
 
+/*
+ * Decrypt a sealed frame the way a receiver would -- nonce from the MAC,
+ * the device-info byte and the counter it carries -- and hand back the
+ * plaintext objects. Returns their length, or -1 if the MIC failed.
+ */
+static int unseal(const uint8_t *out, int n, const uint8_t mac[6],
+                  const uint8_t key[16], uint8_t *plain, uint32_t *counter)
+{
+	/* Service-data AD starts after header, MAC and flags. */
+	int svc = 2 + 6 + 3;
+	int ad_end = svc + 1 + out[svc];
+	int info_at = svc + 4;
+	int payload_at = info_at + 1;
+	int cipher_len = ad_end - payload_at - 8;
+	const uint8_t *ctr = out + ad_end - 8;
+	uint8_t nonce[CCM_NONCE_LEN];
+
+	if (ad_end != n || cipher_len < 0)
+		return -1;
+	*counter = (uint32_t)ctr[0] | (uint32_t)ctr[1] << 8 |
+	           (uint32_t)ctr[2] << 16 | (uint32_t)ctr[3] << 24;
+	memcpy(plain, out + payload_at, (size_t)cipher_len);
+	bthome_nonce(nonce, mac, out[info_at], *counter);
+	if (!ccm_decrypt(key, nonce, plain, cipher_len, out + ad_end - 4))
+		return -1;
+	return cipher_len;
+}
+
+static void test_encrypted_frames(void)
+{
+	static const uint8_t key[16] = { 0x23, 0x1d, 0x39, 0xc1, 0xd7, 0xcc, 0x1a, 0xb1,
+	                                 0xae, 0xe2, 0x24, 0xcd, 0x09, 0x6d, 0xb9, 0x32 };
+	uint8_t mac[6] = { 0xA5, 0x80, 0x8F, 0xE6, 0x48, 0x54 };
+	uint8_t events[4] = { BTHOME_EVT_NONE, BTHOME_EVT_LONG_PRESS,
+	                      BTHOME_EVT_NONE, BTHOME_EVT_NONE };
+	bthome_frame_t f;
+	uint8_t out[BTHOME_ADV_MAX], plain[32];
+	uint32_t ctr;
+	int n, p;
+
+	printf("\n== encrypted frames ==\n");
+
+	/* Event frame */
+	bthome_build_event_frame(&f, 0x02, mac, events, 0x2A);
+	n = bthome_seal(&f, out, mac, key, 1000);
+	hexdump("event, sealed", out, n);
+	check(n - 8 <= 31, "event frame: AD payload within 31 bytes");
+	check(out[2 + 6 + 3 + 4] == 0x45, "device info 0x45: v2, trigger, encrypted");
+	p = unseal(out, n, mac, key, plain, &ctr);
+	{
+		const uint8_t want[] = { 0x00, 0x2A, 0x3A, 0, 0x3A, 4, 0x3A, 0, 0x3A, 0 };
+		check(p == (int)sizeof(want) && memcmp(plain, want, sizeof(want)) == 0 && ctr == 1000,
+		      "event frame decrypts to packet id + four buttons");
+	}
+	check(memcmp(out + 2 + 6 + 3 + 5, plain, 4) != 0, "payload on air is not the plaintext");
+
+	/* Same frame, next counter: different bytes, still decrypts. */
+	{
+		uint8_t out2[BTHOME_ADV_MAX];
+		int n2 = bthome_seal(&f, out2, mac, key, 1001);
+
+		check(n2 == n && memcmp(out, out2, (size_t)n) != 0,
+		      "resealed under the next counter: different bytes");
+		check(unseal(out2, n2, mac, key, plain, &ctr) > 0 && ctr == 1001,
+		      "and it decrypts with counter 1001");
+	}
+
+	/* Wrong key: rejected. */
+	{
+		uint8_t bad[16];
+
+		memcpy(bad, key, 16);
+		bad[0] ^= 1;
+		check(unseal(out, n, mac, bad, plain, &ctr) < 0, "wrong key: MIC fails");
+	}
+
+	/* Power frame, worst case (temperature present). */
+	bthome_status_t st = { .temp_c100 = 2345, .supply_mv = 3300, .batt_low = 1,
+	                       .charging = 1, .text = "USB chg", .exposures = 0x0102 };
+
+	bthome_build_power_frame(&f, 0x02, mac, 7, &st);
+	n = bthome_seal(&f, out, mac, key, 5000);
+	hexdump("power, sealed", out, n);
+	check(n - 8 <= 31, "power frame: AD payload within 31 bytes");
+	p = unseal(out, n, mac, key, plain, &ctr);
+	{
+		const uint8_t want[] = { 0x00, 7, 0x02, 0x29, 0x09, 0x0C, 0xE4, 0x0C,
+		                         0x15, 1, 0x16, 1, 0x3D, 0x02, 0x01 };
+		check(p == (int)sizeof(want) && memcmp(plain, want, sizeof(want)) == 0,
+		      "power frame: id, temp, volt, low, chg, exposure count");
+	}
+	check(n - 8 == 31, "power frame with temperature is exactly 31 bytes");
+
+	/* Text frame at the full encrypted length, and one over. */
+	bthome_build_text_frame(&f, 0x02, mac, 8, "0123456789AB");
+	n = bthome_seal(&f, out, mac, key, 5001);
+	hexdump("text, sealed", out, n);
+	check(n - 8 <= 31, "text frame: AD payload within 31 bytes");
+	p = unseal(out, n, mac, key, plain, &ctr);
+	check(p == 4 + BTHOME_TEXT_FRAME_MAX && plain[2] == 0x53 &&
+	      plain[3] == BTHOME_TEXT_FRAME_MAX &&
+	      memcmp(plain + 4, "0123456789A", BTHOME_TEXT_FRAME_MAX) == 0,
+	      "text frame: truncated to 11 characters");
+	check(n - 8 == 31, "text frame at 11 characters is exactly 31 bytes");
+}
+
 int main(void)
 {
 	test_layout();
+	test_encrypted_frames();
 	test_status_frame();
 	test_address_order();
 
